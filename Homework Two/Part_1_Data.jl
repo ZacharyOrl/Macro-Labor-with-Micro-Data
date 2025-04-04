@@ -3,6 +3,8 @@
     Authors:    Zachary Orlando and Cutberto Frias Sarraf
 =# ##################################################################################################
 
+using Plots, Random, LinearAlgebra, Statistics, DataFrames, GLM, CategoricalArrays, FixedEffectModels, CSV
+
 #= ################################################################################################## 
     Part 1: Data
     1.2 Earnings losses while unemployed
@@ -19,8 +21,58 @@
 
 =# ##################################################################################################
 
+function Simulate_Earnings(N, T, X)
+    
+    # Initialize matrices
+    JL = zeros(N, T)  # Job Losers
+    JS = zeros(N, T)  # Job Stayers
 
+    # Standard deviation for the initial earnings shock
+    σ₀ = 1000
 
+    # Standard deviation for earnings growth
+    σ₁ = 500
+
+    # Assigning the workers first year's earnings 
+    JL[:, 1] = 30000 .+ σ₀ * randn(N)
+    JS[:, 1] = 30000 .+ σ₀ * randn(N)
+
+    # Simulate the earnings trayectories for these workers
+    for i in 2:T
+
+        if i != X
+            JL[:, i] = JL[:, i-1] .+ 1000 .+ σ₁ * randn(N)  # 
+            JS[:, i] = JS[:, i-1] .+ 1000 .+ σ₁ * randn(N)  # 
+        else
+            JL[:, i] = JL[:, i-1] .- 9000 .+ σ₁ * randn(N)  # 
+            JS[:, i] = JS[:, i-1] .+ 1000 .+ σ₁ * randn(N)  # 
+        end
+
+    end
+
+    return JL, JS
+end
+
+# Parameter values
+N = 500
+T = 11
+X = 6
+
+JL, JS = Simulate_Earnings(N, T, X)
+
+mean_JL = mean(JL, dims = 1)[1,:]
+mean_JS = mean(JS, dims = 1)[1,:] 
+
+#= ################################################################################################## 
+    Plots
+=# ##################################################################################################
+
+plot(1:11, mean_JL, label = "Average Earnings for Job Losers")
+plot!(1:11, mean_JS, label = "Average Earnings for Job Stayers")
+title!("Average Earnings")
+xlabel!("Years")
+ylabel!("Average Earnings")
+plot!(legend=:topleft)
 
 #= ################################################################################################## 
     • Step 2: Using the simulated data from step 1, estimate the distributed lag framework from class,
@@ -31,14 +83,70 @@
     lag framework. What are the values of βk and γt ? What do you think they should be equal to?
 =# ##################################################################################################
 
+# Create vectors for individual ID and year
+individuals_JL = repeat(1:N, inner=T)          # Repeats each ID for all years
+individuals_JS = repeat(N+1:2N, inner=T)       # Repeats each ID for all years
+years          = repeat(1:T, outer=N)          # Assigns year 1:T to each individual
+
+# Convert JL and JS matrices to long format
+earnings_JL = reshape(JL', :)  # Transpose and then vectorize
+earnings_JS = reshape(JS', :)  # Transpose and then vectorize
+
+# Create group labels
+group_JL = fill("JL", N * T)
+group_JS = fill("JS", N * T)
+
+# Create DataFrames
+Data_JL       = DataFrame(Individual=individuals_JL, Year=years, Earnings=earnings_JL, Group=group_JL)
+Data_JS       = DataFrame(Individual=individuals_JS, Year=years, Earnings=earnings_JS, Group=group_JS)
+Data_Earnings = vcat(Data_JL, Data_JS)
+
+# Convert categorical variables
+Data_Earnings.Individual  = CategoricalArray(Data_Earnings.Individual)
+Data_Earnings.Year        = CategoricalArray(Data_Earnings.Year)
+Data_Earnings.Group       = CategoricalArray(Data_Earnings.Group)
+first(Data_Earnings, 10)
+
+# Estimate the regression
+model           = reg(Data_Earnings, @formula(Earnings ~ 0 + fe(Individual) + Year + Group*Year))
+print(model)
 
 
 
 
+##################################################################################################
+
+# Data_Earnings.Interaction = CategoricalArray(string.(Data_Earnings.Group, "_", Data_Earnings.Year))
+# Data_Earnings.Interaction = CategoricalArray(
+#     [
+#         Data_Earnings.Group[i] == "JL" ? "JL" : string(Data_Earnings.Group[i], "_", Data_Earnings.Year[i])
+#         for i in 1:nrow(Data_Earnings)
+#     ]
+# )
+
+# # Specify a valid base level from the interaction variable (e.g., "JL_1")
+# base_level = "JS_4"  # Replace with the actual base level you want to use
+
+# # Fit the model with Effects Coding using the specified base level
+# model = reg(Data_Earnings, @formula(Earnings ~ 0 + Individual + Year + Interaction), 
+#             contrasts = Dict(:Interaction => EffectsCoding(base=base_level)))
 
 
+# Data_Earnings.Interaction = CategoricalArray(string.(Data_Earnings.Group, "_", Data_Earnings.Year))
+# Data_Earnings.JL         = ifelse.(Data_Earnings.Group .== "JL", 1, 0)  # Dummy for Job Losers (JL)
+# Data_Earnings.JS         = ifelse.(Data_Earnings.Group .== "JS", 1, 0)  # Dummy for Job Stayers (JS)
+# for y in levels(Data_Earnings.Year)
+#     Data_Earnings[!, Symbol("D_" * string(y))] = (Data_Earnings.Year .== y) .& (Data_Earnings.JL .== 1)
+# end
 
+# base_level = "D_5"  # Replace with the actual base level you want to use
 
+# Estimate the regression
+# model = reg(Data_Earnings, @formula(Earnings ~ 0 + Year + Individual + D_1 + D_2 + D_3 + D_5 + D_6 + D_7 + D_8 + D_9 + D_10 + D_11))
+# CSV.write("Homework Two/Output/Dataframe_Simulations.csv", Data_Earnings)
+
+# coefficients    = coef(model)
+# coeffnames      = coefnames(model)
 
 
 

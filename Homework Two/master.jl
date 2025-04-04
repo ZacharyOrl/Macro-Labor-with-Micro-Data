@@ -41,15 +41,18 @@ run(`$stata_path -b do $data_dir/PS2_Clean_PSID.do`)
 #= ################################################################################################## 
     2. Part_1_Data.jl
     
-    Simulate (...)
+    Simulate data on 500 job losers and 500 job stayers for 11 years. We estimate a distributed lag 
+    specification.
 =# ##################################################################################################
 
 println("Running Julia script: Part_1_Data.jl")
 include("Part_1_Data.jl")
 
 #= ################################################################################################## 
-    3. X.jl
+    3. Part_2_Model.jl
     
     X
 =# ##################################################################################################
 
+println("Running Julia script: Part_2_Model.jl")
+include("Part_2_Model.jl")
