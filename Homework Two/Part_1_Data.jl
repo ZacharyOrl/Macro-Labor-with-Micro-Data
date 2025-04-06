@@ -18,7 +18,6 @@ using Plots, Random, LinearAlgebra, Statistics, DataFrames, GLM, CategoricalArra
     sample suppose in year 6 their earnings decline by 9,000 plus noise, and then resume increasing 
     by 1000 per year (plus noise) until year 11. For the job stayers sample suppose in year 6 
     through 11 they continue to have an average increase in earnings of 1000 (plus mean zero noise).
-
 =# ##################################################################################################
 
 function Simulate_Earnings(N, T, X)
