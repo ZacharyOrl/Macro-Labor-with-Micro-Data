@@ -48,9 +48,6 @@ include("Tauchen_1986.jl")
     μ::Float64   = 0.50
     σ::Float64   = 0.10 # sqrt(0.10)
     nw::Int64    = 41
-
-    ψᵤ::Float64  = 0.50
-    ψₑ::Float64  = 0.05 # 0.20
 end 
 
 #initialize value function and policy functions
@@ -61,6 +58,8 @@ end
     S_policy_index::Array{Int64,2}
     W_policy::Array{Float64,2}
     w_reservation::Array{Float64,2}
+    ψᵤ::Float64 
+    ψₑ::Float64
 end
 
 # Function for initializing model primitives and results
@@ -74,11 +73,13 @@ function Initialize_Model()
     S_policy_index = zeros(T, nh)
     W_policy   = zeros(T, nh)           
     w_reservation = zeros(T, nh)                 # Reservation wage
+    ψᵤ         = 0.05
+    ψₑ         = 0.05 # 0.20
 
     w_grid, w_prob = tauchen(nw, 0.0, σ, μ)      # Wage offer distribution 
     w_prob         = w_prob[1,:]
 
-    results  = Results(U, W, S_policy, S_policy_index,W_policy, w_reservation)
+    results  = Results(U, W, S_policy, S_policy_index,W_policy, w_reservation, ψᵤ, ψₑ)
     return param, results, w_grid, w_prob
 end
 
@@ -190,14 +191,27 @@ plot!(legend=:bottomright)
 # savefig("Homework Two/Output/PS2_Image_01.png") 
 
 # Reservation Wage 
-age = [25, 30, 35, 40, 45, 50, 55]
-indices = [1, 60, 120, 180, 240, 300, 360]
-plot(h_grid, w_reservation[indices[1], :], label = "t = $(age[1])")
-for (t, idx) in zip(age[2:end], indices[2:end])
-    plot!(h_grid, w_reservation[idx, :], label = "t = $t")
+# age = [25, 30, 35, 40, 45, 50, 55]
+# indices = [1, 60, 120, 180, 240, 300, 360]
+# plot(h_grid, w_reservation[indices[1], :], label = "t = $(age[1])")
+# for (t, idx) in zip(age[2:end], indices[2:end])
+#     plot!(h_grid, w_reservation[idx, :], label = "t = $t")
+# end
+# title!("Reservation Wage")
+# xlabel!("Human Capital")
+# ylabel!("Reservation Wage")
+# plot!(legend=:bottomleft)
+# savefig("Homework Two/Output/PS2_Image_02.png") 
+
+# Reservation Wage 
+human_capital = [1.0, 1.25, 1.50, 2.0]
+indices = [1, 7, 13, 25]
+plot(1:360, w_reservation[:, indices[1]], label = "Human Capital = $(human_capital[1])")
+for (t, idx) in zip(human_capital[2:end], indices[2:end])
+    plot!(1:360, w_reservation[:, idx], label = "Human Capital = $t")
 end
 title!("Reservation Wage")
-xlabel!("Human Capital")
+xlabel!("Age in Months")
 ylabel!("Reservation Wage")
 plot!(legend=:bottomleft)
 # savefig("Homework Two/Output/PS2_Image_02.png") 
@@ -217,7 +231,7 @@ title!("Value Function Unemployment")
 xlabel!("Human Capital")
 ylabel!("Value Function Unemployment")
 plot!(legend=:topleft)
-savefig("Homework Two/Output/PS2_Image_03.png") 
+# savefig("Homework Two/Output/PS2_Image_03.png") 
 
 # Value Function Employment
 age = [25, 30, 35, 40, 45, 50, 55]
@@ -230,7 +244,7 @@ title!("Value Function Employment")
 xlabel!("Human Capital")
 ylabel!("Value Function Employment")
 plot!(legend=:topleft)
-savefig("Homework Two/Output/PS2_Image_04.png") 
+# savefig("Homework Two/Output/PS2_Image_04.png") 
 
 #= ################################################################################################## 
     In the simulated data, plot the distribution of human capital among the employed and
@@ -293,13 +307,13 @@ function simulate_model(param, results, S::Int64)
                         Wage[s, n]       = w_grid[W_drawn_index]
                     else
                         Employment[s, n] = 0
-                        Wage[s, n]       = 0.0
+                        Wage[s, n]       = b
                         Search_Intensity[s,n] = S_policy[n, Human_Capital_Index[s,n]]
                         Search_Index[s,n]     = S_policy_index[n, Human_Capital_Index[s,n]]
                     end
                 else 
                     Employment[s, n] = 0
-                    Wage[s, n]       = 0.0
+                    Wage[s, n]       = b
                     Search_Intensity[s,n] = S_policy[n, Human_Capital_Index[s,n]]
                     Search_Index[s,n]     = S_policy_index[n, Human_Capital_Index[s,n]]
                 end 
@@ -322,7 +336,7 @@ function simulate_model(param, results, S::Int64)
                     Wage[s, n]       = Wage[s, n-1]
                 else
                     Employment[s, n] = 0
-                    Wage[s, n]       = 0.0
+                    Wage[s, n]       = b
                     Search_Intensity[s,n] = S_policy[n, Human_Capital_Index[s,n]]
                     Search_Index[s,n]     = S_policy_index[n, Human_Capital_Index[s,n]]
                 end
@@ -358,7 +372,7 @@ histogram([Human_Capital_Employed, Human_Capital_Unemployed],
           bins   = 48, 
           legend =:topleft,
           alpha  = 0.6)
-savefig("Homework Two/Output/PS2_Image_05.png") 
+# savefig("Homework Two/Output/PS2_Image_05.png") 
 
 #= ################################################################################################## 
     In the simulated data, what is the average gain in earnings for individuals who are working for 
@@ -448,10 +462,21 @@ Avg_income_dynamics    = [mean(skipmissing(transposed_matrix[:, i])) for i in 1:
 Avg_income_dynamics    = vec(Avg_income_dynamics)
 months_range           = -before_months:after_months
 
+Avg_income_dynamics_Psi_u_050 = Avg_income_dynamics
+Avg_income_dynamics_Psi_u_025 = Avg_income_dynamics
+Avg_income_dynamics_Psi_u_005 = Avg_income_dynamics
+
 # This plot was made with ψu = 0.50 and ψe = 0.20
-plot(months_range, Avg_income_dynamics, label = "Average Income Dynamics")
+plot(months_range, Avg_income_dynamics_Psi_u_050, label = "ψᵤ = 0.50")
+plot!(months_range, Avg_income_dynamics_Psi_u_025, label = "ψᵤ = 0.25")
+plot!(months_range, Avg_income_dynamics_Psi_u_005, label = "ψᵤ = 0.05")
 title!("Income Dynamics")
 xlabel!("Months Relative to Job Loss")
 ylabel!("Monthly Income")
 plot!(legend=:bottomright)
-savefig("Homework Two/Output/PS2_Image_06.png") 
+# savefig("Homework Two/Output/PS2_Image_06.png") 
+
+
+Drop_050 = (1 - Avg_income_dynamics_Psi_u_050[24] / Avg_income_dynamics_Psi_u_050[6])*100
+Drop_025 = (1 - Avg_income_dynamics_Psi_u_025[24] / Avg_income_dynamics_Psi_u_025[6])*100
+Drop_005 = (1 - Avg_income_dynamics_Psi_u_005[24] / Avg_income_dynamics_Psi_u_005[6])*100
