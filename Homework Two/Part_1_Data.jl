@@ -110,7 +110,22 @@ first(Data_Earnings, 10)
 model           = reg(Data_Earnings, @formula(Earnings ~ 0 + fe(Individual) + Year + Group*Year))
 print(model)
 
+#= ################################################################################################## 
+    Additional Plots
+=# ##################################################################################################
 
+D_ik = [-9.185664, -43.48981, 24.57907, 17.692, 0.0, -10025.85, -10002.07, 
+                        -9941.054, -9894.838, -9902.49, -9907.042]
+
+plot(-5:1:5, D_ik,
+    label = "Earnings Loss",
+    title = "Earnings Loss",
+    xlabel = "Years (Year 6 is the layoff year)",
+    ylabel = "Earnings Loss",
+    legend = :topright,
+    lw = 2,
+    marker = :circle)
+# savefig("Homework Two/Output/PS2_Figure_01.png") 
 
 
 ##################################################################################################

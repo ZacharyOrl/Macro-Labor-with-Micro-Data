@@ -32,25 +32,25 @@ include("Tauchen_1986.jl")
     b::Float64  = 0.10                          # Value of unemployment insurance
     
     # Grids
-    h_min::Int64 = 1
-    h_max::Int64 = 2
-    nh::Int64    = 25
+    h_min::Float64 = 1.0
+    h_max::Float64 = 2.0
+    nh::Int64      = 25
     h_grid::Vector{Float64} = range(h_min, h_max, length=nh)   
 
-    s_min::Int64 = 0
-    s_max::Int64 = 1
-    ns::Int64    = 41
+    s_min::Float64 = 0.0
+    s_max::Float64 = 1.0
+    ns::Int64      = 41
     s_grid::Vector{Float64} = range(s_min, s_max, length=ns)
 
     c::Vector{Float64}  = 0.5 .* s_grid                 # Search cost
     PI::Vector{Float64} = sqrt.(s_grid)                 # Probability of drawing and offer
 
     μ::Float64   = 0.50
-    σ::Float64   = 0.10
+    σ::Float64   = 0.10 # sqrt(0.10)
     nw::Int64    = 41
 
     ψᵤ::Float64  = 0.50
-    ψₑ::Float64  = 0.20 # 0.05
+    ψₑ::Float64  = 0.05 # 0.20
 end 
 
 #initialize value function and policy functions
@@ -114,7 +114,7 @@ function Solve_Problem(param::Primitives, results::Results)
                 for w_index in 1:nw
                     w = w_grid[w_index]       
                     W[j, h_index, w_index] = w * h + β * ψₑ * ((1 -δ) * W[j+1, h_index+1, w_index] + δ * U[j+1, h_index+1]) + 
-                                                     β * (1-ψₑ) * ((1 -δ) * W[j+1, h_index, w_index] + δ * U[j+1, h_index])                               
+                                                 β * (1-ψₑ) * ((1 -δ) * W[j+1, h_index  , w_index] + δ * U[j+1, h_index  ])                               
                 end
             end
 
@@ -132,8 +132,8 @@ function Solve_Problem(param::Primitives, results::Results)
                         val += β * (1-PI[s_index]) * U[j+1, h_index]                              
                 else
                     for w_index in 1:nw
-                        val += β * ψᵤ * PI[s_index] * w_prob[w_index] * max(W[j+1, h_index-1, w_index], U[j+1, h_index-1]) + 
-                               β * (1-ψᵤ) * PI[s_index] * w_prob[w_index] * max(W[j+1, h_index, w_index], U[j+1, h_index])                              
+                        val += β * ψᵤ     * PI[s_index] * w_prob[w_index] * max(W[j+1, h_index-1, w_index], U[j+1, h_index-1]) + 
+                               β * (1-ψᵤ) * PI[s_index] * w_prob[w_index] * max(W[j+1, h_index  , w_index], U[j+1, h_index  ])                              
                     end
                         val += β * ψᵤ * (1-PI[s_index]) * U[j+1, h_index-1] + β * (1-ψᵤ) * (1-PI[s_index]) * U[j+1, h_index]   
                 end 
@@ -148,16 +148,20 @@ function Solve_Problem(param::Primitives, results::Results)
         end
     end
 
-    for j in T:-1:1
+    for j in 1:T
         for h_index in 1:nh
+            # println("j=$j h_index=$h_index")
             for w_index in 1:nw
-                if W[j, h_index, w_index] > U[j, h_index]
+                if W[j, h_index, w_index] >= U[j, h_index]
                     w_reservation[j, h_index] = w_grid[w_index]
+                    # println("w=$(w_grid[w_index]), W=$(W[j, h_index, w_index]), U=$(U[j, h_index])")
                     break  # First w_index satisfying the condition is the reservation wage
                 end
             end
         end 
     end
+
+
 end
 
 #= ################################################################################################## 
@@ -172,31 +176,25 @@ Solve_Problem(param, results)
     Plots
 =# ##################################################################################################
 
-# plot(h_grid, S_policy[1, :], label = "Search Policy Function", ylims = (0, 1))
-# title!("Search Policy Function")
-# xlabel!("Human Capital")
-# ylabel!("Search Policy Function")
-# plot!(legend=:topleft)
-
 # Search Policy Function
 age = [25, 30, 35, 40, 45, 50, 55]
 indices = [1, 60, 120, 180, 240, 300, 360]
-plot(h_grid, S_policy[indices[1], :], label = "Search Policy Function t = $(age[1])", ylims = (0, 1))
+plot(h_grid, S_policy[indices[1], :], label = "t = $(age[1])", ylims = (0.8, 1))
 for (t, idx) in zip(age[2:end], indices[2:end])
-    plot!(h_grid, S_policy[idx, :], label = "Search Policy Function t = $t", ylims = (0, 1))
+    plot!(h_grid, S_policy[idx, :], label = "t = $t", ylims = (0.8, 1))
 end
 title!("Search Policy Function")
 xlabel!("Human Capital")
 ylabel!("Search Policy Function")
-plot!(legend=:topleft)
+plot!(legend=:bottomright)
 # savefig("Homework Two/Output/PS2_Image_01.png") 
 
 # Reservation Wage 
 age = [25, 30, 35, 40, 45, 50, 55]
 indices = [1, 60, 120, 180, 240, 300, 360]
-plot(h_grid, w_reservation[indices[1], :], label = "Reservation Wage t = $(age[1])")
+plot(h_grid, w_reservation[indices[1], :], label = "t = $(age[1])")
 for (t, idx) in zip(age[2:end], indices[2:end])
-    plot!(h_grid, w_reservation[idx, :], label = "Reservation Wage t = $t")
+    plot!(h_grid, w_reservation[idx, :], label = "t = $t")
 end
 title!("Reservation Wage")
 xlabel!("Human Capital")
@@ -219,20 +217,20 @@ title!("Value Function Unemployment")
 xlabel!("Human Capital")
 ylabel!("Value Function Unemployment")
 plot!(legend=:topleft)
-# savefig("Homework Two/Output/PS2_Image_03.png") 
+savefig("Homework Two/Output/PS2_Image_03.png") 
 
 # Value Function Employment
 age = [25, 30, 35, 40, 45, 50, 55]
 indices = [1, 60, 120, 180, 240, 300, 360]
 plot(h_grid, W[indices[1], :, 41], label = "t = $(age[1])")
 for (t, idx) in zip(age[2:end], indices[2:end])
-    plot!(h_grid, W[idx, :, 21], label = "t = $t")
+    plot!(h_grid, W[idx, :, 41], label = "t = $t")
 end
 title!("Value Function Employment")
 xlabel!("Human Capital")
 ylabel!("Value Function Employment")
 plot!(legend=:topleft)
-# savefig("Homework Two/Output/PS2_Image_04.png") 
+savefig("Homework Two/Output/PS2_Image_04.png") 
 
 #= ################################################################################################## 
     In the simulated data, plot the distribution of human capital among the employed and
@@ -360,7 +358,7 @@ histogram([Human_Capital_Employed, Human_Capital_Unemployed],
           bins   = 48, 
           legend =:topleft,
           alpha  = 0.6)
-# savefig("Homework Two/Output/PS2_Image_05.png") 
+savefig("Homework Two/Output/PS2_Image_05.png") 
 
 #= ################################################################################################## 
     In the simulated data, what is the average gain in earnings for individuals who are working for 
@@ -442,6 +440,7 @@ for i in 1:S # Individuals
 end
 
 # Calculate the average dynamics across all individuals and events
+max_len                = maximum(map(length, income_dynamics))
 Income_dynamics        = [vcat(income, fill(missing, max_len - length(income))) for income in income_dynamics]
 Income_dynamics_matrix = hcat(Income_dynamics...)
 transposed_matrix      = transpose(Income_dynamics_matrix)
@@ -450,9 +449,9 @@ Avg_income_dynamics    = vec(Avg_income_dynamics)
 months_range           = -before_months:after_months
 
 # This plot was made with ψu = 0.50 and ψe = 0.20
-plot(months_range, avg_income_dynamics, label = "Average Income Dynamics")
+plot(months_range, Avg_income_dynamics, label = "Average Income Dynamics")
 title!("Income Dynamics")
 xlabel!("Months Relative to Job Loss")
 ylabel!("Monthly Income")
-plot!(legend=:topright)
-# savefig("Homework Two/Output/PS2_Image_06.png") 
+plot!(legend=:bottomright)
+savefig("Homework Two/Output/PS2_Image_06.png") 
