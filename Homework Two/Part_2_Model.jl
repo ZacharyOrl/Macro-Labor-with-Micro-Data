@@ -73,7 +73,7 @@ function Initialize_Model()
     S_policy_index = zeros(T, nh)
     W_policy   = zeros(T, nh)           
     w_reservation = zeros(T, nh)                 # Reservation wage
-    ψᵤ         = 0.05
+    ψᵤ         = 0.50
     ψₑ         = 0.05 # 0.20
 
     w_grid, w_prob = tauchen(nw, 0.0, σ, μ)      # Wage offer distribution 
