@@ -106,9 +106,7 @@ Data_Earnings.Year        = CategoricalArray(Data_Earnings.Year)
 Data_Earnings.Group       = CategoricalArray(Data_Earnings.Group)
 first(Data_Earnings, 10)
 
-# Estimate the regression
-model           = reg(Data_Earnings, @formula(Earnings ~ 0 + fe(Individual) + Year + Group*Year))
-print(model)
+CSV.write("Homework Two/Output/Dataframe_Simulations.csv", Data_Earnings)
 
 #= ################################################################################################## 
     Additional Plots
@@ -126,45 +124,6 @@ plot(-5:1:5, D_ik,
     lw = 2,
     marker = :circle)
 # savefig("Homework Two/Output/PS2_Figure_01.png") 
-
-
-##################################################################################################
-
-# Data_Earnings.Interaction = CategoricalArray(string.(Data_Earnings.Group, "_", Data_Earnings.Year))
-# Data_Earnings.Interaction = CategoricalArray(
-#     [
-#         Data_Earnings.Group[i] == "JL" ? "JL" : string(Data_Earnings.Group[i], "_", Data_Earnings.Year[i])
-#         for i in 1:nrow(Data_Earnings)
-#     ]
-# )
-
-# # Specify a valid base level from the interaction variable (e.g., "JL_1")
-# base_level = "JS_4"  # Replace with the actual base level you want to use
-
-# # Fit the model with Effects Coding using the specified base level
-# model = reg(Data_Earnings, @formula(Earnings ~ 0 + Individual + Year + Interaction), 
-#             contrasts = Dict(:Interaction => EffectsCoding(base=base_level)))
-
-
-# Data_Earnings.Interaction = CategoricalArray(string.(Data_Earnings.Group, "_", Data_Earnings.Year))
-# Data_Earnings.JL         = ifelse.(Data_Earnings.Group .== "JL", 1, 0)  # Dummy for Job Losers (JL)
-# Data_Earnings.JS         = ifelse.(Data_Earnings.Group .== "JS", 1, 0)  # Dummy for Job Stayers (JS)
-# for y in levels(Data_Earnings.Year)
-#     Data_Earnings[!, Symbol("D_" * string(y))] = (Data_Earnings.Year .== y) .& (Data_Earnings.JL .== 1)
-# end
-
-# base_level = "D_5"  # Replace with the actual base level you want to use
-
-# Estimate the regression
-# model = reg(Data_Earnings, @formula(Earnings ~ 0 + Year + Individual + D_1 + D_2 + D_3 + D_5 + D_6 + D_7 + D_8 + D_9 + D_10 + D_11))
-# CSV.write("Homework Two/Output/Dataframe_Simulations.csv", Data_Earnings)
-
-# coefficients    = coef(model)
-# coeffnames      = coefnames(model)
-
-
-
-
 
 
 
