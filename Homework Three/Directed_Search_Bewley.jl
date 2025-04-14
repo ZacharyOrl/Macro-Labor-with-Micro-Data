@@ -17,7 +17,7 @@ using CategoricalArrays, StatsPlots
 @with_kw struct Primitives @deftype Float64
 
     T::Int64 = 120                           # Life-cycle to 30 years (quarterly)
-    r        = 0.04                          # Interest rate  
+    r        = (1.04)^(1/4) − 1              # Quarterly net interest rate corresponding to an annualized 4% rate. 
     β        = 0.99                          # Discount rate  
     σ        = 2.0                           # Coefficient of Relative Risk Aversion 
     δ        = 0.1                           # Job-Destruction Rate
