@@ -21,12 +21,11 @@ using CategoricalArrays, StatsPlots
     β        = 0.99                          # Discount rate  
     σ        = 2.0                           # Coefficient of Relative Risk Aversion 
     δ        = 0.1                           # Job-Destruction Rate
-    b        = 0.10                          # Value of unemployment insurance
 
     τ        = 0.2                           # Marginal tax rate on wages
     ζ        = 1.6                           # Matching elasticity parameter
     κ        = .995                          # Cost of posting a vacancy for a firm
-    z        = 0.4 
+    z        = 0.4                           # Unemployment Benefit (Transfer funded by τ)
 
     p_hl     = 0.5                           # Per-period probability of moving down one human capital grid point when unemployed
     p_hl     = 0.05                           # Per-period probability of moving up one human capital grid point when employed
