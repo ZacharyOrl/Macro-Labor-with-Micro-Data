@@ -114,13 +114,6 @@ tsset person_id year
 * Create a full-time work indicator representing whether a person was working and whether they worked full-time
 gen full_time = (working_hours >= `full_time_hours' & working_status == 1)
 
-* Drop individuals who skip years in the PSID 
-
-gen year_skip = (year != year[_n-1] + 1 & person_id == person_id[_n-1])
-bysort person_id (year): egen skipped_years = max(year_skip)
-
-*drop if skipped_year // taken out
-
 * Job Losers *******************************************************************
 
 * Define job loss as working hours < 75% of last year's working hours, having worked full time for the past three years  
@@ -184,9 +177,18 @@ gen event_time = year - year_of_job_loss if job_loser == 1
 * For job-stayers, this is centred on the fourth year of employment
 replace event_time = year - (year_of_employment) if job_stayer == 1
 
+* Ensure that all individuals are observed four times from -3 to 0
+gen year_skip = (year != year[_n-1] + 1 & person_id == person_id[_n-1])
+
+*drop if skipped_year // taken out
+bysort person_id (year): gen temp = sum(1 - year_skip) if inrange(event_time,-3,0)
+bysort person_id (year): egen ob_count = max(temp)
+
+drop if ob_count < 4
+drop temp
+
 * In davis and Von Wachter, the dependent variable is loss relative to earnings four years prior. 
 * Here, I normalize by earnings three years prior to job loss. 
-
 gen temp = hh_income if event_time == -3
 
 bysort person_id (year): egen initial_income = max(temp)
