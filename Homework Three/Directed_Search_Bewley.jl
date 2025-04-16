@@ -559,7 +559,7 @@ savefig("PS3_Image_01.png")
 
 # Plot the distribution of wages conditional on actually receiving the wage 
 masked_wages = ifelse.(employed .== 1, w_search, missing)
-histogram(masked_wages[:,80],ylabel = "Fraction of Simulations",label ="", title =  "Distribution of wages at age 50",normalize = :pdf )
+histogram(masked_wages[:,80],ylabel = "Fraction of Simulations",label ="", title =  "Distribution of wages at age 45",normalize = :pdf )
 savefig("PS3_Image_02.png") 
 
 # c) Unemployment rate 
