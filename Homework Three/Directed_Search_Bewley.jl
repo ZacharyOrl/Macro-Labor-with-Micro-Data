@@ -567,6 +567,8 @@ savefig("PS3_Image_02.png")
 plot(age_grid[2:120], 1 .- mean(employed[:,2:120], dims = 1)', ylabel = "Unemployment Rate",label = "", xlabel = "Age", title = "Unemployment Rate by Age")
 savefig("PS3_Image_03.png") 
 
+# Unemployment Rate overall is: 
+1 .- mean(employed[:,2:120]) # 13.8%
 # d) Mean earnings and assets by age 
 # Construct earnings from tax payments: earnings = taxes * ((1 - τ)/τ) (I.e. exclude income from savings)
 earnings = taxes .* ((1 - param.τ)/param.τ)
@@ -665,6 +667,9 @@ savefig("PS3_Image_09.png")
 plot(age_grid[2:120], 1 .- mean(employed[:,2:120], dims = 1)', ylabel = "Unemployment Rate",label = "z = 0.4", xlabel = "Age", title = "Unemployment Rate")
 plot!(age_grid[2:120], 1 .- mean(employed_z_cf[:,2:120], dims = 1)',label = "z = 0.44")
 savefig("PS3_Image_10.png")
+
+# Unemployment Rate overall is: 
+1 .- mean(employed_z_cf[:,2:120]) # 13.8%
 
 
 
