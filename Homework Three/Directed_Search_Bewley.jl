@@ -559,7 +559,7 @@ savefig("PS3_Image_01.png")
 
 # Plot the distribution of wages conditional on actually receiving the wage 
 masked_wages = ifelse.(employed .== 1, w_search, missing)
-histogram(masked_wages[:,80],ylabel = "Fraction of Simulations",label ="", title =  "Distribution of wages at age 45",normalize = :pdf )
+histogram(masked_wages[:,80],ylabel = "Fraction of Simulations",label ="", title =  "Distribution of wages at age 45",normalize = :probability )
 savefig("PS3_Image_02.png") 
 
 # c) Unemployment rate 
@@ -568,7 +568,7 @@ plot(age_grid[2:120], 1 .- mean(employed[:,2:120], dims = 1)', ylabel = "Unemplo
 savefig("PS3_Image_03.png") 
 
 # Unemployment Rate overall is: 
-1 .- mean(employed[:,2:120]) # 13.8%
+1 .- mean(employed[:,2:120]) # 15.2%
 # d) Mean earnings and assets by age 
 # Construct earnings from tax payments: earnings = taxes * ((1 - τ)/τ) (I.e. exclude income from savings)
 earnings = taxes .* ((1 - param.τ)/param.τ)
@@ -635,6 +635,7 @@ savefig("PS3_Image_07.png")
 ##################################################################################
 results.z = 0.44 
 
+param, results = Initialize_Model()
 Solve_Problem(param, results)
 
 # Simulate new model
@@ -670,6 +671,7 @@ savefig("PS3_Image_10.png")
 
 # Unemployment Rate overall is: 
 1 .- mean(employed_z_cf[:,2:120]) # 13.8%
+
 
 
 

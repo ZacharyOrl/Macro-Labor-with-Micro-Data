@@ -211,7 +211,7 @@ forvalues i = -3/10 {
 
 keep if inrange(event_time,-3,10)
 
-reghdfe normalized_income_w treat_time_m2-treat_time_m1 treat_time_p0-treat_time_p10,a(person_id year)
+reghdfe normalized_income_w treat_time_m2-treat_time_m1 treat_time_p0-treat_time_p10,a(person_id)
 
 ********************************************************************************
 * Plot our event study
