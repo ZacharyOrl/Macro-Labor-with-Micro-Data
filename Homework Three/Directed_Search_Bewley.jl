@@ -6,10 +6,12 @@
 using Parameters, Plots, Random, LinearAlgebra, Statistics, DataFrames,FastGaussQuadrature
 using CategoricalArrays, StatsPlots
 
+# Directory where the images will be stored
+outdir = "C:/Users/zacha/Documents/2025 Spring/Advanced Macroeconomics/J. Carter Braxton/Homework/Homework Three/images"
 #= ################################################################################################## 
     Part 2: Model
 =# ##################################################################################################
-
+cd(outdir)
 #= ################################################################################################## 
     Parameters
 =# ##################################################################################################
@@ -22,30 +24,29 @@ using CategoricalArrays, StatsPlots
     σ        = 2.0                           # Coefficient of Relative Risk Aversion 
     δ        = 0.1                           # Job-Destruction Rate
 
-    τ        = 0.2                           # Marginal tax rate on wages
+    τ        = 0.03                           # Marginal tax rate on wages
     ζ        = 1.6                           # Matching elasticity parameter
     κ        = .995                          # Cost of posting a vacancy for a firm
-    z        = 0.4                           # Unemployment Benefit (Transfer funded by τ)
 
     p_hl     = 0.5                           # Per-period probability of moving down one human capital grid point when unemployed
     p_hh     = 0.05                          # Per-period probability of moving up one human capital grid point when employed
 
     # Grids
     # Human Capital
-    h_min          = 0.5
-    h_max          = 1.5
+    h_min          = 1.0
+    h_max          = 2.0
     nh::Int64      = 25
     h_grid::Vector{Float64} = range(h_min, h_max, length=nh)   
 
     # Piece Wages 
-    w_min           = 0.0
+    w_min           = 0.0 # w > z/(h_min *(1-τ)
     w_max           = 1.0
     nw::Int64       = 25
     w_grid::Vector{Float64} = range(w_min, w_max, length=nw)   
 
     # Saving  - use b to match assignment notation
     b_min = 0.01  # (Default Calibration assumes a ZBC)
-    b_max = 5.0
+    b_max = 10.0
     nb::Int64      = 100
     b_grid::Vector{Float64} = range(b_min, b_max, length=nb)
 
@@ -62,6 +63,8 @@ end
     U_b_policy::Array{Float64,3}    # Need to choose a w to search in and a b
 
     θ::Array{Float64,3}             # Market Tightness of each submarket for each period θ[T, w, h]
+
+    z::Float64                      # Unemployment Benefit (Transfer funded by τ)
 end
 
 # Function for initializing model primitives and results
@@ -79,7 +82,8 @@ function Initialize_Model()
 
     θ          = zeros(T+1, nw, nh)
 
-    results  = Results(U, W, J, W_policy, U_w_policy, U_b_policy, θ)
+    z = 0.4
+    results  = Results(U, W, J, W_policy, U_w_policy, U_b_policy, θ, z)
     return param, results
 end
 
@@ -91,7 +95,7 @@ end
 function flow_utility_func(c::Float64, param::Primitives)
     @unpack σ, = param
 
-    return ( c^( 1 - σ )   ) / (1 - σ)
+    return ( c^( 1 - σ ) - 1   ) / (1 - σ)
 end 
 
 function iterate_firm_value(j::Int64, param::Primitives, results::Results)
@@ -166,6 +170,10 @@ function iterate_employee_value(j::Int64, param::Primitives, results::Results)
                         
                         # Use the employed's budget constraint to find their consumption 
                         c = b - (1/(1+ r)) * b_prime + (1-τ) * w * h 
+# Being unemployed is better than being employed if z > (1-τ)wh
+                        if c <= 0
+                            continue
+                        end
 
                         if c > 0  # Feasibility check
                             val = flow_utility_func(c, param) 
@@ -249,6 +257,10 @@ function iterate_unemployed_value(j::Int64, param::Primitives, results::Results)
                         b_prime = b_grid[b_prime_index]
 
                         c = z + b - (1/(1 + r)) * b_prime
+
+                        if c <= 0
+                            continue
+                        end
 
                         if c > 0  # Feasibility check
                             val = flow_utility_func(c, param) 
@@ -346,21 +358,20 @@ function simulate_model(S::Int64, param::Primitives, results::Results)
     saving = zeros(S,T + 1) # the savings of the agent
     taxes = zeros(S,T)
 
-    # Every person starts their life unemployed, with 0 savings and the lowest human capital. 
-    saving[:,1]        .= b_grid[1] 
-    saving[:,2]        .= U_b_policy[1, 1, 1]
-    human_capital[:,1] .= h_grid[1] 
-    w_search[:,1]      .= U_w_policy[1, 1, 1]
-    employed[:,1]      .= 0 
-    taxes[:,1]         .= 0 
 
-    consumption[:,1]   .= z .+ saving[:,1] .- (1/(1 + r)) .* saving[:,2]
+    # Loop over each individual 
+    for s = 1:S 
+        # Every person starts their life unemployed, with 0 savings and the lowest human capital. 
+        saving[s,1]        = b_grid[1] 
+        saving[s,2]        = U_b_policy[1, 1, 1]
+        human_capital[s,1] = h_grid[1] 
+        w_search[s,1]      = U_w_policy[1, 1, 1]
+        employed[s,1]      = 0 
+        taxes[s,1]         = 0.0
 
-
-    # Loop over each lifecycle 
-    for t = 2:T
-            # Loop over each individual 
-        for s = 1:S 
+        consumption[s,1]   = z + saving[s,1] .- (1/(1 + r)) .* saving[s,2]
+        # Loop over each lifecycle 
+        for t = 2:T
             w_search_index      = findfirst(x -> x == w_search[s,t-1], w_grid)
             human_capital_index = findfirst(x -> x == human_capital[s,t-1], h_grid)
             saving_index        = findfirst(x -> x == saving[s,t], b_grid)
@@ -389,7 +400,7 @@ function simulate_model(S::Int64, param::Primitives, results::Results)
                     else 
                         employed[s, t] = 0
                         w_search[s, t] = U_w_policy[t, saving_index, human_capital_index]
-                        saving[s, t + 1] = U_b_policy[t, w_search_index, saving_index, human_capital_index]
+                        saving[s, t + 1] = U_b_policy[t, saving_index, human_capital_index]
                         consumption[s, t] =  z + saving[s,t] - (1/(1 + r)) * saving[s, t + 1]
 
                     end 
@@ -416,7 +427,7 @@ function simulate_model(S::Int64, param::Primitives, results::Results)
                         else 
                             employed[s, t] = 0
                             w_search[s, t] = U_w_policy[t, saving_index, human_capital_index - 1]
-                            saving[s, t + 1] = U_b_policy[t, w_search_index, saving_index, human_capital_index - 1]
+                            saving[s, t + 1] = U_b_policy[t, saving_index, human_capital_index - 1]
                             consumption[s, t] =  z + saving[s,t] - (1/(1 + r)) * saving[s, t + 1]
 
                         end 
@@ -441,7 +452,7 @@ function simulate_model(S::Int64, param::Primitives, results::Results)
                         else 
                             employed[s, t] = 0
                             w_search[s, t] = U_w_policy[t, saving_index, human_capital_index]
-                            saving[s, t + 1] = U_b_policy[t, w_search_index, saving_index, human_capital_index]
+                            saving[s, t + 1] = U_b_policy[t, saving_index, human_capital_index]
                             consumption[s, t] =  z + saving[s,t] - (1/(1 + r)) * saving[s, t + 1]
 
                         end 
@@ -467,7 +478,7 @@ function simulate_model(S::Int64, param::Primitives, results::Results)
                     else 
                         employed[s, t] = 0
                         w_search[s, t] = U_w_policy[t, saving_index, human_capital_index]
-                        saving[s, t + 1] = U_b_policy[t, w_search_index, saving_index, human_capital_index]
+                        saving[s, t + 1] = U_b_policy[t, saving_index, human_capital_index]
                         consumption[s, t] =  z + saving[s, t] - (1/(1 + r)) * saving[s, t + 1]
                     end 
                 # They are not at the upper boundary of the human capital grid 
@@ -490,7 +501,7 @@ function simulate_model(S::Int64, param::Primitives, results::Results)
                         else 
                             employed[s, t] = 0
                             w_search[s, t] = U_w_policy[t, saving_index, human_capital_index + 1]
-                            saving[s, t + 1] = U_b_policy[t, w_search_index, saving_index, human_capital_index + 1]
+                            saving[s, t + 1] = U_b_policy[t, saving_index, human_capital_index + 1]
                             consumption[s, t] =  z + saving[s,t] - (1/(1 + r)) * saving[s, t + 1]
                         end 
                     # They do not gain a human capital level 
@@ -511,7 +522,7 @@ function simulate_model(S::Int64, param::Primitives, results::Results)
                             employed[s, t] = 0
 
                             w_search[s, t] = U_w_policy[t, saving_index, human_capital_index]
-                            saving[s, t + 1] = U_b_policy[t, w_search_index, saving_index, human_capital_index]
+                            saving[s, t + 1] = U_b_policy[t, saving_index, human_capital_index]
 
                             consumption[s, t] =  z + saving[s,t] - (1/(1 + r)) * saving[s, t + 1]
                         end 
@@ -523,39 +534,137 @@ function simulate_model(S::Int64, param::Primitives, results::Results)
 
     return w_search,  employed, human_capital, consumption, saving,  taxes
 end 
-
-w_search,  employed, human_capital, consumption, saving,  taxes = simulate_model(2000, param, results)
-
-mean(consumption, dims = 1)
-plot(consumption)
 ##########################################################################
-# Checks
+# Solve and simulate the model 
 ##########################################################################
 param, results = Initialize_Model()
 
 Solve_Problem(param, results)
-_Problem(param, results)
-# Check the results for tightness and firm utiltiy 
-@unpack_Primitives param                # Unpack model parameters
-@unpack_Results results
 
-plot(results.U[1,40, :])
+S = 10000
+w_search,  employed, human_capital, consumption, saving,  taxes = simulate_model(S, param, results)
+##########################################################################
+# Plots 
+##########################################################################
+T = 120 
+age_grid = range(25.0, 55, length=T)  
 
+# a) Histogram of the distribution of assets
 
-J[T,1,25] # 1.5 as expected
-J[T-1,1,25] 
-plot(results.J[:,1, 25]) # Falls with t
+# Plot the histogram of savings at age 45 (T = 80)
+histogram(saving[:,80],ylabel = "Fraction of Simulations",label ="", title =  "Distribution of assets at age 45",normalize = :pdf )
+savefig("PS3_Image_01.png") 
 
-θ[T,:,:]
-θ[2,:,:] # Tightness falls over time as expected. 
+# b) Histogram of wages
 
-W_policy[50,:,41,:] # Saving policy seems ok 
-U_b_policy[1,1,:]
-U[100,2,:]
+# Plot the distribution of wages conditional on actually receiving the wage 
+masked_wages = ifelse.(employed .== 1, w_search, missing)
+histogram(masked_wages[:,80],ylabel = "Fraction of Simulations",label ="", title =  "Distribution of wages at age 50",normalize = :pdf )
+savefig("PS3_Image_02.png") 
 
-U_w_policy[1,1,:]
+# c) Unemployment rate 
+# Don't include the first year when everyone is trivially unemployed. 
+plot(age_grid[2:120], 1 .- mean(employed[:,2:120], dims = 1)', ylabel = "Unemployment Rate",label = "", xlabel = "Age", title = "Unemployment Rate by Age")
+savefig("PS3_Image_03.png") 
 
-U[T,:,:]
+# d) Mean earnings and assets by age 
+# Construct earnings from tax payments: earnings = taxes * ((1 - τ)/τ) (I.e. exclude income from savings)
+earnings = taxes .* ((1 - param.τ)/param.τ)
+
+# Plot average & median (because there is likely skewness) earnings by age 
+plot(age_grid[2:120], mean(earnings[:,2:120], dims = 1)', ylabel = "After-Tax Earnings",label = "Mean", xlabel = "Age", title = "Earnings by Age")
+plot!(age_grid[2:120], median(earnings[:,2:120], dims = 1)', ylabel = "After-Tax Earnings",label = "Median", xlabel = "Age", title = "Earnings by Age")
+savefig("PS3_Image_04.png") 
+
+# Plot mean & median savings by age 
+plot(age_grid[2:120], mean(saving[:,2:120], dims = 1)', ylabel = "Savings",label = "Mean", xlabel = "Age", title = "Assets by Age")
+plot!(age_grid[2:120], median(saving[:,2:120], dims = 1)', ylabel = "",label = "Median", xlabel = "Age", title = "Assets by Age")
+savefig("PS3_Image_05.png") 
+
+# e) Find the average gain in earnings while employed
+
+# Find the earnings individuals received when they were employed only 
+masked_earnings = ifelse.(employed .== 1, earnings, missing)
+earnings_change = masked_earnings[:,2:T] .- masked_earnings[:, 1:T-1]
+
+# The mean earnings change is: 
+mean(skipmissing(earnings_change)) # 0.0017
+
+# Which is about 0.2% of earnings for the employed - much lower than the earnings growth of about 3% we found in the PSID.  
+100 * mean(skipmissing(earnings_change))/mean(skipmissing(masked_earnings))
+
+# f) Find individuals around job loss and plot their earnings changes: 
+employment_changes     = employed[:, 2:T] .- employed[:, 1:T-1] 
+job_loss  = employment_changes .== -1 
+
+function compute_event_study(outcome, event, employment_condition)
+    # Outputs average values of the outcome 4 periods before to 8 periods after each event
+    # Job loss goes from t = 2 to T
+    S, T = size(outcome)
+    event_window = -3:9  # From t-4 to t+8
+    results = zeros(length(event_window))
+    event_count = 0
+    
+    for s in 1:S, t in 4:T-9
+        if event[s, t] == 1 && employment_condition[s, t] == 1 && employment_condition[s, t - 1] == 1 && employment_condition[s, t - 2] == 1 && employment_condition[s, t - 3] == 1
+            for (i, τ) in enumerate(event_window)
+                results[i] += (outcome[s, t + τ] -  outcome[s,t-3])/ outcome[s, t - 3]
+            end
+            event_count += 1
+        end
+    end
+    
+    return event_count > 0 ? results ./ event_count : results
+end
+
+estimates_earnings = compute_event_study(earnings,job_loss, employed)
+
+# Make a graph of of earnings losses around job_loss - normalizing earnings to an initial year. 
+plot(-4:8, estimates_earnings, xlabel = "Quarters relative to job-loss", ylabel = "Earnings Loss\nRelative to Initial Earnings",label="", title = "Effect of Layoff on Earnings")
+savefig("PS3_Image_06.png") 
+
+# g) Make a graph of consumption around job loss
+estimates_consumption = compute_event_study(consumption,job_loss, employed)
+
+plot(-4:8,estimates_consumption,xlabel = "Quarters relative to job-loss", ylabel = "Consumption Fall \nRelative to Initial Consumption",label="", title = "Effect of Layoff on Consumption")
+savefig("PS3_Image_07.png") 
+##################################################################################
+# h) Increase z by 10% and re-do the plots for earnings and consumption. What changes? 
+##################################################################################
+results.z = 0.44 
+
+Solve_Problem(param, results)
+
+# Simulate new model
+S = 10000
+w_search_z_cf,  employed_z_cf, human_capital_z_cf, consumption_z_cf, saving_z_cf,  taxes_z_cf, = simulate_model(S, param, results)
+
+# Record employment changes
+employment_changes_z_cf     = employed_z_cf[:, 2:T] .- employed_z_cf[:, 1:T-1] 
+job_loss_z_cf = employment_changes_z_cf .== -1 
+
+# Estimate earnings 
+earnings_z_cf = taxes_z_cf .* ((1 - param.τ)/param.τ)
+
+# Make new earnings and consumption estimates 
+estimates_earnings_z_cf = compute_event_study(earnings_z_cf,job_loss_z_cf, employed_z_cf)
+
+estimates_consumption_z_cf = compute_event_study(consumption_z_cf,job_loss_z_cf, employed_z_cf)
+
+# Earnings graph
+plot(-4:8, estimates_earnings, xlabel = "Quarters relative to job-loss", ylabel = "Earnings Loss\nRelative to Initial Earnings",label="z = 0.4", title = "Effect of Layoff on Earnings")
+plot!(-4:8, estimates_earnings_z_cf,label = "z = 0.44")
+savefig("PS3_Image_08.png")
+
+# Consumption graph
+plot(-4:8, estimates_consumption, xlabel = "Quarters relative to job-loss", ylabel = "Consumption Loss\nRelative to Initial Consumption",label="z = 0.4", title = "Effect of Layoff on Consumption")
+plot!(-4:8, estimates_consumption_z_cf,label = "z = 0.44")
+savefig("PS3_Image_09.png")
+
+# Find the unemployment rate 
+plot(age_grid[2:120], 1 .- mean(employed[:,2:120], dims = 1)', ylabel = "Unemployment Rate",label = "z = 0.4", xlabel = "Age", title = "Unemployment Rate")
+plot!(age_grid[2:120], 1 .- mean(employed_z_cf[:,2:120], dims = 1)',label = "z = 0.44")
+savefig("PS3_Image_10.png")
 
 
 
