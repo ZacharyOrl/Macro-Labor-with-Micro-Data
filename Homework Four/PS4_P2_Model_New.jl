@@ -8,7 +8,7 @@
 
 =# ##################################################################################################
 
-using Parameters, Plots, Random, LinearAlgebra, Statistics
+using Parameters, Plots, Random, LinearAlgebra, Statistics, LaTeXStrings
 
 #= ################################################################################################## 
     Part 2: Model Overview
@@ -58,7 +58,7 @@ include("Tauchen_1986.jl")
     # Human Capital Shock
     nz::Int64      = 5
     μ::Float64     = -0.029                       # Mean of z process
-    σ::Float64     = sqrt(0.21) # sqrt(0.11) #    # Standard deviation of z process
+    σ::Float64     = sqrt(0.11) #sqrt(0.21) #     # Standard deviation of z process
 
 end 
 
@@ -205,7 +205,10 @@ function simulate_model(param, results, other_param, S::Int64)
 
     # Initial distribution of human capital 
 
-    Random_h_draws     = rand(Normal(2.0, sqrt(0.5)), S)    
+    # Random_h_draws     = rand(Normal(2.0, sqrt(0.5)), S)
+    # Alternative initial dispersion of human capital for question d) 
+    Random_h_draws     = rand(Normal(2.0, sqrt(2.5)), S) 
+
     h_indices          = max.(searchsortedlast.(Ref(h_grid), Random_h_draws),1)
     Initial_h_Dist     = h_grid[h_indices]         # Actual values from the grid
 
@@ -274,9 +277,6 @@ function simulate_model(param, results, other_param, S::Int64)
     return Human_Capital, Assets, Investing, Consumption, Earnings
 end
 
-S = 10000
-Human_Capital, Assets, Investing, Consumption, Earnings = simulate_model(param, results, other_param, S)
-
 #= ################################################################################################## 
     Plots
 =# ##################################################################################################
@@ -286,6 +286,10 @@ Human_Capital, Assets, Investing, Consumption, Earnings = simulate_model(param, 
     and kurtosis of earnings by age. How do these graphs compare data estimates you created in Part 
     (1) and those presented in Huggett, Ventura, and Yaron [2011].
 =# ##################################################################################################
+
+
+S = 10000
+Human_Capital, Assets, Investing, Consumption, Earnings = simulate_model(param, results, other_param, S)
 
 age           = 25:1:54
 
@@ -400,3 +404,32 @@ savefig("Homework Four/Output/PS4_Image_C02.png")
     does the path of the standard deviation of earnings by age compare to your graph from part (a)?
 =# ##################################################################################################
 
+S = 10000
+Human_Capital, Assets, Investing, Consumption, Earnings = simulate_model(param, results, other_param, S)
+Lifetime_Earnings_1 = vec(mean(Earnings, dims=2))
+Std_Dev_Earnings_1  = vec(std(Earnings, dims=1))
+
+S = 10000
+Human_Capital, Assets, Investing, Consumption, Earnings = simulate_model(param, results, other_param, S)
+Lifetime_Earnings_2 = vec(mean(Earnings, dims=2))
+Std_Dev_Earnings_2  = vec(std(Earnings, dims=1))
+
+
+# Histogram of lifetime earnings
+histogram([Lifetime_Earnings_1, Lifetime_Earnings_2],
+          label  = [L"σ^2 = 0.50" L"σ^2 = 2.50"],
+        #   title  = "Histogram of Lifetime Earnings Observations",
+          xlabel = "Lifetime Earnings",
+          bins   = 50, 
+          legend =:topleft,
+          alpha  = 0.6)
+savefig("Homework Four/Output/PS4_Image_D01.png") 
+
+# Standard Deviation Earnings
+plot(age, Std_Dev_Earnings_1, label = L"Standard \; Deviation \; Earnings \; with \; σ^2 = 0.50")
+plot!(age, Std_Dev_Earnings_2, label = L"Standard \; Deviation \; Earnings \; with \; σ^2 = 2.50")
+title!("")
+xlabel!("Age")
+ylabel!("Standard Deviation Earnings")
+plot!(legend=:bottomright)
+savefig("Homework Four/Output/PS4_Image_D02.png") 
