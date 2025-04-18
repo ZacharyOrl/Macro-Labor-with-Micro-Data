@@ -8,19 +8,18 @@
 
 =# ##################################################################################################
 
-using Parameters, Plots, Random, LinearAlgebra, Statistics, DataFrames,FastGaussQuadrature
-using CategoricalArrays, StatsPlots
+using Parameters, Plots, Random, LinearAlgebra, Statistics
 
 #= ################################################################################################## 
     Part 2: Model Overview
-    Consider a simplied form of the model from Huggett, Ventura, and Yaron [2011]. There are
+    Consider a simplified form of the model from Huggett, Ventura, and Yaron [2011]. There are
     overlapping generations of households who live and for T periods (i..e, there is no retirement).
     Agents are heterogeneous in the human capital h, and assets k (there is a common level of ability).
     In each period, agents make a consumption savings decision and a decision about how much time
-    to invest in their human cpaital, which follows a Ben-Porath structure.
+    to invest in their human capital, which follows a Ben-Porath structure.
 =# ##################################################################################################
 
-include("Homework Two/Tauchen_1986.jl")
+include("Tauchen_1986.jl")
 
 #= ################################################################################################## 
     Parameters
@@ -31,38 +30,64 @@ include("Homework Two/Tauchen_1986.jl")
     T::Int64    = 30                            # Life-cycle to 30 years (annual)
     r::Float64  = 0.04                          # Interest rate  
     β::Float64  = 0.99                          # Discount rate  
-    δ::Float64  = 0.033                         # Probability of being laid off
-    b::Float64  = 0.10                          # Value of unemployment insurance
-    
-    # Grids
+    γ::Float64  = 2.0                           # Coefficient of Relative Risk Aversion 
+    α::Float64  = 0.70                          # Human Capital Technology parameter 
+
+    # Human Capital Grid
     h_min::Float64 = 1.0
-    h_max::Float64 = 2.0
-    nh::Int64      = 25
+    h_max::Float64 = 10.0
+    nh::Int64      = 100
     h_grid::Vector{Float64} = range(h_min, h_max, length=nh)   
 
+    # Capital/Savings Grid
+    k_min::Float64 = 0.0
+    k_max::Float64 = 50.0
+    nk::Int64      = 100
+    k_grid::Vector{Float64} = range(k_min, k_max, length=nk)
+
+    # Studying/Investing in Human Capital Grid
     s_min::Float64 = 0.0
     s_max::Float64 = 1.0
-    ns::Int64      = 41
-    s_grid::Vector{Float64} = range(s_min, s_max, length=ns)
+    ns::Int64      = 21
+    s_grid::Vector{Float64} = range(s_min, s_max, length=ns)  
 
-    c::Vector{Float64}  = 0.5 .* s_grid                 # Search cost
-    PI::Vector{Float64} = sqrt.(s_grid)                 # Probability of drawing and offer
+    R_grid::Vector{Float64} = [(1.0019)^(t - 1) for t in 1:30] # Rental rate on labor for an age t worker
 
-    μ::Float64   = 0.50
-    σ::Float64   = 0.10 # sqrt(0.10)
-    nw::Int64    = 41
+    H              =  h_grid .+ (reshape(h_grid, :, 1) .* reshape(s_grid, 1, :)).^α    # H - Law of Human Capital pre-shock
+
+    # Human Capital Shock
+    nz::Int64      = 11
+    μ::Float64     = -0.029                       # Mean of z process
+    σ::Float64     = sqrt(0.11)                   # Standard deviation of z process
+    # sqrt(0.21)
+
 end 
 
-#initialize value function and policy functions
+# Initialize value function and policy functions
 @with_kw mutable struct Results
-    U::Array{Float64,2}
-    W::Array{Float64,3}
-    S_policy::Array{Float64,2}
-    S_policy_index::Array{Int64,2}
-    W_policy::Array{Float64,2}
-    w_reservation::Array{Float64,2}
-    ψᵤ::Float64 
-    ψₑ::Float64
+    V::Array{Float64,3}
+    k_policy::Array{Float64,3}
+    k_policy_index::Array{Int64,3}
+    s_policy::Array{Float64,3}
+    s_policy_index::Array{Int64,3}
+    c_policy::Array{Float64,3}
+end
+
+@with_kw struct OtherPrimitives
+    Ω::Array{Int64, 3}
+    Z_grid::Vector{Float64}
+    Γ_z::Vector{Float64}
+end
+
+function findnearest(grid::Vector{T}, value::T) where T
+    idx = searchsortedlast(grid, value)
+    if idx == 0
+        return 1
+    elseif idx == length(grid)
+        return idx
+    else
+        return abs(grid[idx] - value) < abs(grid[idx+1] - value) ? idx : idx + 1
+    end
 end
 
 # Function for initializing model primitives and results
@@ -70,31 +95,316 @@ function Initialize_Model()
     param = Primitives()
     @unpack_Primitives param
 
-    U          = zeros(T + 1, nh)
-    W          = zeros(T + 1, nh, nw) 
-    S_policy   = zeros(T, nh)
-    S_policy_index = zeros(T, nh)
-    W_policy   = zeros(T, nh)           
-    w_reservation = zeros(T, nh)                 # Reservation wage
-    ψᵤ         = 0.50
-    ψₑ         = 0.05 # 0.20
+    V               = zeros(T + 1, nh, nk)
+    k_policy        = zeros(T, nh, nk)
+    k_policy_index  = zeros(T, nh, nk)
+    s_policy        = zeros(T, nh, nk)
+    s_policy_index  = zeros(T, nh, nk)
+    c_policy        = zeros(T, nh, nk)
 
-    w_grid, w_prob = tauchen(nw, 0.0, σ, μ)      # Wage offer distribution 
-    w_prob         = w_prob[1,:]
+    # Ω is an object that consider current Human Capital h and Studying/Investment s that maps into a value H(h,s).
+    # However h' depends on the realizations of z in particular: h' = exp(z) * H(h,s).
+    # We obtain the z nodes (z_grid) and weights (Γ_z) and then transform them into levels by Z_grid = exp.(z_grid)
+    Ω           = zeros(nh, ns, nz)                 
+    z_grid, Γ_z = tauchen(nz, 0.0, σ, μ) 
+    Γ_z         = Γ_z[1,:]
+    Z_grid      = exp.(z_grid)
 
-    results  = Results(U, W, S_policy, S_policy_index,W_policy, w_reservation, ψᵤ, ψₑ)
-    return param, results, w_grid, w_prob
+    # Further, since me have a mapping from HxSxZ -> H, however this h' might not be in the h_grid, so we make an
+    # adjustemnt using findnearest() we find the INDEX of h'
+
+    for i in 1:nh
+        for j in 1:ns
+                Ω[i,j,:] = findnearest.(Ref(h_grid), Z_grid .* H[i, j])
+        end
+    end 
+
+    other_param = OtherPrimitives(Ω, Z_grid, Γ_z)
+    results     = Results(V, k_policy, k_policy_index, s_policy, s_policy_index, c_policy)
+
+    return param, results, other_param
 end
 
 #= ################################################################################################## 
-    2.2 Assignment
-     
-    Solve the model with VFI and simulate a mass of agents.
-    In the VFI there are two policy functions to store: (1) search policy function and (2) reservation 
-    wage by human capital. Each policy function is also a function of age.
-          
+    2.1 Assignment
+
+    Solve the model above and simulate a panel of indiviudals from the model using the suggested 
+    parameters below and report the following.
+       
     Functions
 
 =# ##################################################################################################
 
+function Flow_Utility(c::Float64, param::Primitives)
+    @unpack_Primitives param                
+
+    return (c^(1 - γ) - 1) / (1 - γ)
+end 
+
+function Solve_Problem(param::Primitives, results::Results, other_param::OtherPrimitives)
+    # Solves the decision problem: param is the structure of parameters and results stores solutions 
+    @unpack_Primitives param                
+    @unpack_Results results
+    @unpack_OtherPrimitives other_param
+
+    println("Begin solving the model backwards")
+    for j in T:-1:1  # Backward induction
+        println("Age is ", 24+j)
+
+        #= --------------------------------- STATE VARIABLES ---------------------------------------- =#
+        for h_index in 1:nh                                         # State: Human Capital h
+            h = h_grid[h_index]
+
+            for k_index in 1:nk                                     # State: Savings Capital k
+                k = k_grid[k_index]
+                candidate_max = -Inf                     
+        #= --------------------------------- DECISION VARIABLES ------------------------------------- =#
+                for s_index in 1:ns                                 # Control: Studying/Investment s
+                    s = s_grid[s_index]
+                    # H =  h + (h * s)^α                            # H - Law of Human Capital pre-shock
+
+                    for kp_index in 1:nk                            # Control: SSavings Capital k'
+                        kp = k_grid[kp_index]
+                        c = k * (1+ r) + R_grid[j] * h * (1-s) - kp # Consumption
+        #= --------------------------------- GRID SEARCH -------------------------------------------- =#
+                        if c > 0                                    # Feasibility check
+                            val = Flow_Utility(c, param)            # Flow utility
+
+                            for zp_index in 1:nz                    # Recall Ω provides the index for h'
+                                    val += β * Γ_z[zp_index] * V[j + 1, Ω[h_index, s_index, zp_index], kp_index] 
+                            end
+
+                            if val > candidate_max                  # Check for max
+                                candidate_max                       = val
+                                k_policy[j, h_index, k_index]       = kp
+                                k_policy_index[j, h_index, k_index] = kp_index                              
+                                s_policy[j, h_index, k_index]       = s
+                                s_policy_index[j, h_index, k_index] = s_index                              
+                                c_policy[j, h_index, k_index]       = c
+                                V[j, h_index, k_index]              = candidate_max
+                            end   
+                        end
+        #= ------------------------------------------------------------------------------------------- =# 
+
+                    end 
+                end 
+            end 
+        end
+    end
+
+end
+
+#= ################################################################################################## 
+    Solving the Model
+=# ##################################################################################################
+param, results, other_param = Initialize_Model()
+Solve_Problem(param, results, other_param)
+@unpack_Primitives param                                             
+@unpack_Results results
+@unpack_OtherPrimitives other_param
+
+#= ################################################################################################## 
+    Simulations
+=# ##################################################################################################
+
+function simulate_model(param, results, other_param, S::Int64)
+
+    @unpack_Primitives param                                             
+    @unpack_Results results
+    @unpack_OtherPrimitives other_param
+
+    # Initial distribution of human capital 
+    h_indices          = rand(1:length(h_grid), S) # Random indices
+    Initial_h_Dist     = h_grid[h_indices]         # Actual values from the grid
+
+    # Distrbution of z shocks
+    Γ_z_dist            = Categorical(Γ_z)
+    z_shocks            = rand(Γ_z_dist, S, T) 
+
+    # Outputs
+    Human_Capital       = zeros(S, T) 
+    Human_Capital_Index = zeros(Int64, S, T)
+    Savings             = zeros(S, T) 
+    Savings_Index       = zeros(Int64, S, T)
+    Investing           = zeros(S, T) 
+    Investing_Index     = zeros(Int64, S, T)
+    Consumption         = zeros(S, T)
+    Earnings            = zeros(S, T)
+
+    for s = 1:S
+
+        # Initial Human Capital
+        Human_Capital_Index[s,1] = h_indices[s]
+        Human_Capital[s,1]       = Initial_h_Dist[s]
+
+        # Initial Savings      
+        Savings[s,1]             = 0.0
+        Savings_Index[s,1]       = 1
+
+        # Initial Investing Policy 
+        Investing[s,1]           = s_policy[1, h_indices[s], 1]
+        Investing_Index[s,1]     = s_policy_index[1, h_indices[s], 1]
+
+        # Consumpton
+        Consumption[s, 1]        = c_policy[1, Human_Capital_Index[s,1], Savings_Index[s,1]]
+
+        # Earnings
+        Earnings[s, 1]           = R_grid[1] * Human_Capital[s, 1] * (1-Savings[s, 1])
+
+        for t = 2:T 
+
+            # Human capital evolution
+            h_index     = Human_Capital_Index[s, t-1]
+            s_index     = Investing_Index[s, t-1]
+            k_index     = Savings_Index[s, t-1]
+            zp_index    = z_shocks[s, t-1]
+
+            Human_Capital_Index[s, t] = Ω[h_index, s_index, zp_index]
+            Human_Capital[s, t]       = h_grid[Human_Capital_Index[s, t]]
+
+            # Savings 
+            Savings[s, t]             = k_policy[t, h_index, k_index]
+            Savings_Index[s, t]       = k_policy_index[t, h_index, k_index]          
+
+            # Investing 
+            Investing[s, t]           = s_policy[t, h_index, k_index]
+            Investing_Index[s, t]     = s_policy_index[t, h_index, k_index]          
+
+            # Consumpton
+            Consumption[s, t]         = c_policy[t, h_index, k_index]
+
+            # Earnings
+            Earnings[s, t]            = R_grid[t] * Human_Capital[s, t] * (1-Investing[s, t])
+        end 
+
+    end 
+
+    return Human_Capital, Savings, Investing, Consumption, Earnings
+end
+
+S = 10000
+Human_Capital, Savings, Investing, Consumption, Earnings = simulate_model(param, results, other_param, S)
+
+#= ################################################################################################## 
+    Plots
+=# ##################################################################################################
+
+#= ################################################################################################## 
+    (a) Plot the average path of earnings in the model as well as the standard deviation, skewness 
+    and kurtosis of earnings by age. How do these graphs compare data estimates you created in Part 
+    (1) and those presented in Huggett, Ventura, and Yaron [2011].
+=# ##################################################################################################
+
+age           = 25:1:54
+
+Mean_Earnings     = vec(mean(Earnings, dims=1))
+Std_Dev_Earnings  = vec(std(Earnings, dims=1))
+Skewness_Earnings = vec(mean(Earnings, dims=1) ./ median(Earnings, dims=1))
+Kurtosis_Earnings = [kurtosis(Earnings[:, t]) for t in 1:T]
+
+# Mean Earnings
+plot(age, Mean_Earnings, label = "Mean Earnings")
+title!("")
+xlabel!("Age")
+ylabel!("Mean Earnings")
+plot!(legend=:topleft)
+# savefig("Homework Four/Output/PS4_Image_A01.png") 
+
+# Standard Deviation Earnings
+plot(age, Std_Dev_Earnings, label = "Standard Deviation Earnings")
+title!("")
+xlabel!("Age")
+ylabel!("Standard Deviation Earnings")
+plot!(legend=:topleft)
+# savefig("Homework Four/Output/PS4_Image_A03.png") 
+
+# Skewness Earnings
+plot(age, Skewness_Earnings, label = "Skewness Earnings")
+title!("")
+xlabel!("Age")
+ylabel!("Skewness Earnings")
+plot!(legend=:topleft)
+# savefig("Homework Four/Output/PS4_Image_A03.png") 
+
+# Kurtosis Earnings
+plot(age, Kurtosis_Earnings, label = "Kurtosis Earnings")
+title!("")
+xlabel!("Age")
+ylabel!("Kurtosis Earnings")
+plot!(legend=:topleft)
+# savefig("Homework Four/Output/PS4_Image_A04.png") 
+
+
+#= ################################################################################################## 
+    (b) Plot the policy function for investing in human capital as a function a function of (1) 
+    assets and (2) human capital for workers of different ages.
+=# ##################################################################################################
+
+# Investing in Human Capital Policy Function: Assets
+age       = [25, 35, 45, 54]
+indices   = [ 1, 11, 21, 30]
+Median_HC = floor(Int, median(h_grid))
+plot(k_grid, s_policy[indices[1], Median_HC, :], label = "t = $(age[1])")
+for (t, idx) in zip(age[2:end], indices[2:end])
+    plot!(k_grid, s_policy[idx, Median_HC, :], label = "t = $t")
+end
+title!("")
+xlabel!("Assets")
+ylabel!("Investing in Human Capital Policy Function")
+plot!(legend=:bottomleft)
+# savefig("Homework Four/Output/PS4_Image_B01.png") 
+
+# Investing in Human Capital Policy Function: Human Capital
+age       = [25, 35, 45, 54]
+indices   = [ 1, 11, 21, 30]
+Median_K  = floor(Int, median(k_grid))
+plot(h_grid, s_policy[indices[1], :, Median_K], label = "t = $(age[1])")
+for (t, idx) in zip(age[2:end], indices[2:end])
+    plot!(h_grid, s_policy[idx, :, Median_K], label = "t = $t")
+end
+title!("")
+xlabel!("Human Capital")
+ylabel!("Investing in Human Capital Policy Function")
+plot!(legend=:bottomleft)
+# savefig("Homework Four/Output/PS4_Image_B02.png") 
+
+#= ################################################################################################## 
+    (c) How do these policy functions change if you increase the variance of shocks to human capital? 
+    Why do you think you see this pattern?
+=# ##################################################################################################
+
+# Investing in Human Capital Policy Function: Assets
+age       = [25, 35, 45, 54]
+indices   = [ 1, 11, 21, 30]
+Median_HC = floor(Int, median(h_grid))
+plot(k_grid, s_policy[indices[1], Median_HC, :], label = "t = $(age[1])")
+for (t, idx) in zip(age[2:end], indices[2:end])
+    plot!(k_grid, s_policy[idx, Median_HC, :], label = "t = $t")
+end
+title!("")
+xlabel!("Assets")
+ylabel!("Investing in Human Capital Policy Function")
+plot!(legend=:bottomleft)
+# savefig("Homework Four/Output/PS4_Image_C01.png") 
+
+# Investing in Human Capital Policy Function: Human Capital
+age       = [25, 35, 45, 54]
+indices   = [ 1, 11, 21, 30]
+Median_K  = floor(Int, median(k_grid))
+plot(h_grid, s_policy[indices[1], :, Median_K], label = "t = $(age[1])")
+for (t, idx) in zip(age[2:end], indices[2:end])
+    plot!(h_grid, s_policy[idx, :, Median_K], label = "t = $t")
+end
+title!("")
+xlabel!("Human Capital")
+ylabel!("Investing in Human Capital Policy Function")
+plot!(legend=:bottomleft)
+# savefig("Homework Four/Output/PS4_Image_C02.png") 
+
+
+#= ################################################################################################## 
+    (d) Create a measure of lifetime earnings based upon Guvenen et al. [2017]. If you increase the 
+    initial dispersion of human capital, how does your measure of lifetime inequality change? How 
+    does the path of the standard deviation of earnings by age compare to your graph from part (a)?
+=# ##################################################################################################
 
