@@ -36,7 +36,7 @@ include("Tauchen_1986.jl")
     # Human Capital Grid
     h_min::Float64 = 1.0
     h_max::Float64 = 10.0
-    nh::Int64      = 300
+    nh::Int64      = 1000
     h_grid::Vector{Float64} = range(h_min, h_max, length=nh)   
 
     # Assets Grid
@@ -58,7 +58,7 @@ include("Tauchen_1986.jl")
     # Human Capital Shock
     nz::Int64      = 5
     μ::Float64     = -0.029                       # Mean of z process
-    σ::Float64     = sqrt(0.11)  # sqrt(0.21) #                  # Standard deviation of z process
+    σ::Float64     = sqrt(0.21) # sqrt(0.11) #    # Standard deviation of z process
 
 end 
 
@@ -77,17 +77,6 @@ end
     Z_grid::Vector{Float64}
     Γ_z::Vector{Float64}
 end
-
-# function findnearest(grid::Vector{T}, value::T) where T
-#     idx = searchsortedlast(grid, value)
-#     if idx == 0
-#         return 1
-#     elseif idx == length(grid)
-#         return idx
-#     else
-#         return abs(grid[idx] - value) < abs(grid[idx+1] - value) ? idx : idx + 1
-#     end
-# end
 
 # Function for initializing model primitives and results
 function Initialize_Model()
@@ -277,7 +266,7 @@ function simulate_model(param, results, other_param, S::Int64)
             Consumption[s, t]         = c_policy[t, h_index, k_index]
 
             # Earnings
-            Earnings[s, t]            = R_grid[t] * Human_Capital_Index[s, t-1] * (1-Investing[s, t])
+            Earnings[s, t]            = R_grid[t] * Human_Capital[s, t-1] * (1-Investing[s, t])
         end 
 
     end 
@@ -311,7 +300,7 @@ title!("")
 xlabel!("Age")
 ylabel!("Mean Earnings")
 plot!(legend=:topleft)
-# savefig("Homework Four/Output/PS4_Image_A01.png") 
+savefig("Homework Four/Output/PS4_Image_A01.png") 
 
 # Standard Deviation Earnings
 plot(age, Std_Dev_Earnings, label = "Standard Deviation Earnings")
@@ -319,7 +308,7 @@ title!("")
 xlabel!("Age")
 ylabel!("Standard Deviation Earnings")
 plot!(legend=:topleft)
-# savefig("Homework Four/Output/PS4_Image_A03.png") 
+savefig("Homework Four/Output/PS4_Image_A02.png") 
 
 # Skewness Earnings
 plot(age, Skewness_Earnings, label = "Skewness Earnings")
@@ -327,7 +316,7 @@ title!("")
 xlabel!("Age")
 ylabel!("Skewness Earnings")
 plot!(legend=:topleft)
-# savefig("Homework Four/Output/PS4_Image_A03.png") 
+savefig("Homework Four/Output/PS4_Image_A03.png") 
 
 # Kurtosis Earnings
 plot(age, Kurtosis_Earnings, label = "Kurtosis Earnings")
@@ -335,7 +324,7 @@ title!("")
 xlabel!("Age")
 ylabel!("Kurtosis Earnings")
 plot!(legend=:topleft)
-# savefig("Homework Four/Output/PS4_Image_A04.png") 
+savefig("Homework Four/Output/PS4_Image_A04.png") 
 
 
 #= ################################################################################################## 
@@ -355,12 +344,12 @@ title!("")
 xlabel!("Assets")
 ylabel!("Investing in Human Capital Policy Function")
 plot!(legend=:bottomright)
-# savefig("Homework Four/Output/PS4_Image_B01.png") 
+savefig("Homework Four/Output/PS4_Image_B01.png") 
 
 # Investing in Human Capital Policy Function: Human Capital
 age       = [25, 35, 45, 51]
 indices   = [ 1, 11, 21, 27]
-K_index = searchsortedlast(k_grid, quantile(vec(Assets), 0.15))
+K_index = searchsortedlast(k_grid, quantile(vec(Assets), 0.50))
 plot(h_grid, s_policy[indices[1], :, K_index], label = "t = $(age[1])")
 for (t, idx) in zip(age[2:end], indices[2:end])
     plot!(h_grid, s_policy[idx, :, K_index], label = "t = $t")
@@ -369,7 +358,7 @@ title!("")
 xlabel!("Human Capital")
 ylabel!("Investing in Human Capital Policy Function")
 plot!(legend=:bottomleft)
-# savefig("Homework Four/Output/PS4_Image_B02.png") 
+savefig("Homework Four/Output/PS4_Image_B02.png") 
 
 #= ################################################################################################## 
     (c) How do these policy functions change if you increase the variance of shocks to human capital? 
@@ -377,32 +366,32 @@ plot!(legend=:bottomleft)
 =# ##################################################################################################
 
 # Investing in Human Capital Policy Function: Assets
-age       = [25, 35, 45, 50]
-indices   = [ 1, 11, 21, 26]
-Median_HC_index = searchsortedlast(h_grid, median(Human_Capital))
-plot(k_grid, s_policy[indices[1], Median_HC_index, :], label = "t = $(age[1])")
+age       = [25, 35, 45, 51]
+indices   = [ 1, 11, 21, 27]
+HC_index = searchsortedlast(h_grid, 3.66)
+plot(k_grid, s_policy[indices[1], HC_index, :], label = "t = $(age[1])")
 for (t, idx) in zip(age[2:end], indices[2:end])
-    plot!(k_grid, s_policy[idx, Median_HC_index, :], label = "t = $t")
+    plot!(k_grid, s_policy[idx, HC_index, :], label = "t = $t")
 end
 title!("")
 xlabel!("Assets")
 ylabel!("Investing in Human Capital Policy Function")
-plot!(legend=:bottomleft)
-# savefig("Homework Four/Output/PS4_Image_C01.png") 
+plot!(legend=:bottomright)
+savefig("Homework Four/Output/PS4_Image_C01.png") 
 
 # Investing in Human Capital Policy Function: Human Capital
-age       = [25, 35, 45, 50]
-indices   = [ 1, 11, 21, 26]
-Median_K_index = searchsortedlast(k_grid, median(Assets))
-plot(h_grid, s_policy[indices[1], :, Median_K_index], label = "t = $(age[1])")
+age       = [25, 35, 45, 51]
+indices   = [ 1, 11, 21, 27]
+K_index = searchsortedlast(k_grid, 6.36)
+plot(h_grid, s_policy[indices[1], :, K_index], label = "t = $(age[1])")
 for (t, idx) in zip(age[2:end], indices[2:end])
-    plot!(h_grid, s_policy[idx, :, Median_K_index], label = "t = $t")
+    plot!(h_grid, s_policy[idx, :, K_index], label = "t = $t")
 end
 title!("")
 xlabel!("Human Capital")
 ylabel!("Investing in Human Capital Policy Function")
 plot!(legend=:bottomleft)
-# savefig("Homework Four/Output/PS4_Image_C02.png") 
+savefig("Homework Four/Output/PS4_Image_C02.png") 
 
 
 #= ################################################################################################## 
