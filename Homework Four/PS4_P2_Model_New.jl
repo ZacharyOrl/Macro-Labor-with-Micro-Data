@@ -140,7 +140,7 @@ function Solve_Problem(param::Primitives, results::Results, other_param::OtherPr
         println("Age is ", 24+j)
 
         #= --------------------------------- STATE VARIABLES ---------------------------------------- =#
-        Threads.@threads for h_index in 1:nh                                         # State: Human Capital h
+        Threads.@threads for h_index in 1:nh                        # State: Human Capital h
             h = h_grid[h_index]
 
             for k_index in 1:nk                                     # State: Assets k
