@@ -40,7 +40,7 @@ global outdir_images "$indir/images"
 * Additional vars used for sample restrictions: 
 * x11104LL = Oversample identifier (11 = Main Sample, 12 = SEO)
 * d11105 = Relationship to Household Head (Head = 1,Partner = 2, Child = 3, Relative = 4, Non-Relative = 5)
-
+* w11102 = Household Weight
 ****************************************************************
 cd "$indir"
 
@@ -48,8 +48,8 @@ cd "$indir"
 use "pequiv_long.dta",clear
 
 * Rename variables
-local oldnames x11101LL i11113 d11102LL d11101 d11112LL d11106 d11107 x11104LL d11105 d11109 e11104
-local newnames person_id hh_income  gender age race hh_size hh_children oversample_id relationship_head education_years working_status
+local oldnames x11101LL i11113 d11102LL d11101 d11112LL d11106 d11107 x11104LL d11105 d11109 e11104 w11102
+local newnames person_id hh_income  gender age race hh_size hh_children oversample_id relationship_head education_years working_status wgt
 
 
 local i = 1
@@ -59,7 +59,7 @@ foreach oldvar in `oldnames' {
     local ++i
 }
 
-keep person_id year hh_income gender age race hh_size hh_children oversample_id relationship_head education_years working_status
+keep person_id year hh_income gender age race hh_size hh_children oversample_id relationship_head education_years working_status wgt
 
 * Income is reported in nominal dollars, adjust for inflation using annual price index for all urban consumers in US. 
 preserve 
@@ -117,13 +117,13 @@ gen cohort = year - age
 
 * Partial out deterministic income component 
 gen log_hh_inc = log(hh_income)
-reghdfe log_hh_inc i.age i.cohort
+reghdfe log_hh_inc i.age i.cohort [pweight = wgt]
 predict deterministic_component
 
 * Age Profile of Predictable Income graph
 preserve 
 	
-	collapse (mean) deterministic_component, by(age)
+	collapse (mean) deterministic_component [pweight = wgt], by(age)
 	
 	graph twoway (line det* age, sort lcolor(black) lwidth(thick)), ///
     ytitle("Log After-Tax Income" "(1997 $)", size(small)) ///

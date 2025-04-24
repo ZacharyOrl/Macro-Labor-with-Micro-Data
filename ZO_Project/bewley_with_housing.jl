@@ -1,73 +1,124 @@
 ###########################################
-# Estimates the Bewley model 
+# Estimates the Bewley model with Housing
 # using income as a sum of a deterministic process, 
 # a persistent (AR1) income process and a transitory process.  
+# housing follows a deterministic trend. 
 ###########################################
 # Packages 
 ###########################################
-using Parameters, CSV, DelimitedFiles, CSV, Plots,Distributions,LaTeXStrings,Statistics, DataFrames
+using Parameters, CSV, DelimitedFiles, CSV, Plots,Distributions,LaTeXStrings,Statistics, DataFrames, LinearAlgebra, Optim
 ###########################################
 # Put your path to the dataset "estimation_results.csv" below 
-indir = "$outdir_parameters" 
+indir = "C:/Users/zacha/Documents/2025 Spring/Advanced Macroeconomics/J. Carter Braxton/Homework/ZO_Project/"
 
 # Put the outdirectory below
-outdir_images = "$outdir_images" 
-outdir_parameters = "$outdir_parameters" 
+outdir_images = joinpath(indir, "images")
+outdir_parameters = joinpath(indir, "parameters")
+
+###########################################
+# Functions
+###########################################
+cd(indir)
+# Function which when given a vector of processes and an N for each process, returns a transition matrix and grid 
+include("rouwenhorst.jl")
+
+# Function which computes an initial distribution over a given grid 
+include("compute_initial_dist.jl")
+
 ###########################################
 # Parameters
 ###########################################
-cd(indir)
+cd(joinpath(indir, "parameters"))
+
 @with_kw struct Model_Parameters @deftype Float64
+
+    # Housing parameters
+    b::Float64 = 0.016 # Annual Log House Price increase used in Cocco (2005) - he estimates 0.016 but uses a lower number to account for quality improvement. 
+    d::Float64 = 0.15                               # Limit on Home equity you can take out in any period. 
+    #π::Float64 = compound(1 + 0.032, 5) - 1        # Moving shock probability 
+    #δ::Float64 = compound(1 + 0.01, 5) - 1         # Housing Depreciation
+    λ::Float64 = 0.08                               # House-sale cost 
+    γ::Float64 = 0.2  # Down-payment proportion 
+
+    # Rent cost: 
+    # In 2000 it was $602 a month and home values were $119,600 so about renters spend about 6% of the typical home value renting 
+    # In 1960, the typical house price was 58,600 (in 2000 dollars)
+    # Source: https://www2.census.gov/programs-surveys/decennial/tables/time-series/coh-values/values-adj.txt
+    rent_prop::Float64 = 0.06 
+    P_bar::Float64 = 58600 #About 2 x median household income in 1960 https://kinder.rice.edu/urbanedge/can-texas-afford-lose-its-housing-affordability-advantage
+
+    # Utility function parameters
+    # θ::Float64 = 0.1              # Utility from housing services relative to consumption
+    σ = 2.0 # Coefficient of Relative Risk Aversion 
+    β = 0.975 # Discount rate 
+    
+    r = 0.04 # Assumed interest rate 
+    
+    N::Int64 = 35 # Years of Life
+
+    # Variance parameters 
+    # Same as in Week 1
+    σ_ζ::Float64 = 0.02285
+    σ_ϵ::Float64 = 0.03863
+
+    # Correlation parameters
+    # Same as in Week 1
+    φ = 0.97 # Autocorrelation in the persistent component of income.
 
     # Load discretized income processes estimated in "discretize_income_process.jl" 
 
-    # Grids
-    ϵ_grid::Array{Float64,1}  = readdlm("transitory_grid.csv")[:,1]
-    ζ_grid::Array{Float64,1}  = readdlm("permanent_grid.csv")[:,1]
+    # Persistent Component 
+    ζ_grid::Vector{Float64} = rouwenhorst(σ_ζ/(1 - φ^2), φ, 5)[1]
+    T_ζ::Matrix{Float64} = rouwenhorst(σ_ζ/(1 - φ^2), φ, 5)[2]
 
-    σ_0_grid::Array{Float64,1}  = readdlm("initial_permanent_dist.csv")[:,1]
-
-    # Transition Matrices
-    T_ϵ::Matrix{Float64} = readdlm("transitory_T.csv")
-    T_ζ::Matrix{Float64} = readdlm("permanent_T.csv")
-
-    nϵ::Int64 = length(ϵ_grid)
     nζ::Int64 = length(ζ_grid)
 
-    # Load the lifecycle component 
+    # Initial Persistent Component 
+    σ_0_grid::Array{Float64,1}  = compute_initial_dist(0.0, sqrt(0.15), η_grid)
+
+    # Transitory Component 
+    ϵ_grid::Vector{Float64} = rouwenhorst(σ_ϵ, 0.0, 5)[1]
+    T_ϵ::Matrix{Float64} = rouwenhorst(σ_ϵ, 0.0, 5)[2]
+
+    nϵ::Int64 = length(ϵ_grid)
+
+    # Load the lifecycle component of income
     κ::Matrix{Float64} = hcat(CSV.File("life_cycle_income.csv").age,CSV.File("life_cycle_income.csv").deterministic_component)
+    
+    # Cash-on-Hand
+    X_min = -1000000.0
+    X_max = -1 * X_min # Maximum cash on hand allowed
+    nX::Int64 = 100 # Number of cash on hand grid points 
+    X_grid::Array{Float64,1} = collect(range(X_min, length = nX, stop = X_max))
 
-    B = 0.01 # No-borrowing constraint
-    a_min = B
-    a_max = 1000000 # Maximum assets allowed
-    na::Int64 = 50 # Number of capital grid points 
+    # Mortgage Debt
+    # Not interested in studying the impact of house price risk on consumption 
+    # So House Prices are deterministic. 
+    M_min = 0.0
+    M_max = (1-λ) * P_bar * exp(b * (N-1))
+    nM::Int64 = 80 # Number of mortgage debt grid points 
 
-    # As the function will be most concave at a = 0 
-    # Create an exponentially-spaced grid, like in Kaplan and Violante (2010)
-    a_grid::Array{Float64,1} = exp.(collect(range(log(a_min), length = na, stop = log(a_max)))) 
-
-    r = 0.04 # Assumed interest rate 
-
-    σ = 2.0 # Coefficient of Relative Risk Aversion 
-    β = 0.975 # Discount rate 
-    N::Int64 = 35 # Years of Life
-    ρ = 0.97
+    M_grid::Array{Float64,1} = collect(range(M_min, length = nM, stop = M_max))
 end 
 
 #initialize value function and policy functions
 mutable struct Solutions
 
     val_func::Array{Float64,4}
-    pol_func::Array{Float64,4}
+    H_pol_func::Array{Float64,4}
+    X_pol_func::Array{Float64,4}
+    M_pol_func::Array{Float64,4}
 
 end
 
 function build_solutions(para) 
 
     val_func = zeros(Float64,para.na,para.nϵ,para.nζ,para.N )
-    pol_func = zeros(Float64,para.na,para.nϵ,para.nζ,para.N )
+    H_pol_func = zeros(Float64,para.na,para.nϵ,para.nζ,para.N )
+    X_pol_func = zeros(Float64,para.na,para.nϵ,para.nζ,para.N )
+    M_pol_func = zeros(Float64,para.na,para.nϵ,para.nζ,para.N )
 
-    sols = Solutions(val_func,pol_func)
+    sols = Solutions(val_func,H_pol_func,X_pol_func, M_pol_func)
 
     return sols
 end 
