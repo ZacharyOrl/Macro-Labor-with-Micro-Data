@@ -9,16 +9,15 @@
 using Parameters, CSV, DelimitedFiles, CSV, Plots,Distributions,LaTeXStrings,Statistics, DataFrames, LinearAlgebra, Optim
 ###########################################
 # Put your path to the dataset "estimation_results.csv" below 
-indir = "C:/Users/zacha/Documents/2025 Spring/Advanced Macroeconomics/J. Carter Braxton/Homework/ZO_Project/"
+#indir = "C:/Users/zacha/Documents/2025 Spring/Advanced Macroeconomics/J. Carter Braxton/Homework/ZO_Project/"
 
-# Put the outdirectory below
-outdir_images = joinpath(indir, "images")
-outdir_parameters = joinpath(indir, "parameters")
+indir_images = "images"
+indir_parameters = "parameters"
 
 ###########################################
 # Functions
 ###########################################
-cd(indir)
+# cd(indir)
 # Function which when given a vector of processes and an N for each process, returns a transition matrix and grid 
 include("rouwenhorst.jl")
 
@@ -28,7 +27,7 @@ include("compute_initial_dist.jl")
 ###########################################
 # Parameters
 ###########################################
-cd(joinpath(indir, "parameters"))
+cd(indir_parameters)
 
 @with_kw struct Model_Parameters @deftype Float64
 
@@ -39,6 +38,7 @@ cd(joinpath(indir, "parameters"))
     #δ::Float64 = compound(1 + 0.01, 5) - 1         # Housing Depreciation
     λ::Float64 = 0.08                               # House-sale cost 
     γ::Float64 = 0.2  # Down-payment proportion 
+    s::Float64 = 1.0 # Proportional utility increase from owning rather than renting (1 = no increase)
 
     # Rent cost: 
     # In 2000 it was $602 a month and home values were $119,600 so about renters spend about 6% of the typical home value renting 
@@ -74,7 +74,7 @@ cd(joinpath(indir, "parameters"))
     nζ::Int64 = length(ζ_grid)
 
     # Initial Persistent Component 
-    σ_0_grid::Array{Float64,1}  = compute_initial_dist(0.0, sqrt(0.15), η_grid)
+    σ_0_grid::Array{Float64,1}  = compute_initial_dist(0.0, sqrt(0.15), ζ_grid)
 
     # Transitory Component 
     ϵ_grid::Vector{Float64} = rouwenhorst(σ_ϵ, 0.0, 5)[1]
@@ -85,6 +85,9 @@ cd(joinpath(indir, "parameters"))
     # Load the lifecycle component of income
     κ::Matrix{Float64} = hcat(CSV.File("life_cycle_income.csv").age,CSV.File("life_cycle_income.csv").deterministic_component)
     
+    # Punishment for defaulting 
+    pun::Float64 = -10^8 
+
     # Cash-on-Hand
     X_min = -1000000.0
     X_max = -1 * X_min # Maximum cash on hand allowed
@@ -99,6 +102,10 @@ cd(joinpath(indir, "parameters"))
     nM::Int64 = 80 # Number of mortgage debt grid points 
 
     M_grid::Array{Float64,1} = collect(range(M_min, length = nM, stop = M_max))
+
+    # Housing levels: 0 = rent, 1 = own
+    H_grid::Vector{Int64} = [0, 1]
+    nH::Int64 = 2
 end 
 
 #initialize value function and policy functions
@@ -106,19 +113,19 @@ mutable struct Solutions
 
     val_func::Array{Float64,4}
     H_pol_func::Array{Float64,4}
-    X_pol_func::Array{Float64,4}
+    c_pol_func::Array{Float64,4}
     M_pol_func::Array{Float64,4}
 
 end
 
 function build_solutions(para) 
 
-    val_func = zeros(Float64,para.na,para.nϵ,para.nζ,para.N )
-    H_pol_func = zeros(Float64,para.na,para.nϵ,para.nζ,para.N )
-    X_pol_func = zeros(Float64,para.na,para.nϵ,para.nζ,para.N )
-    M_pol_func = zeros(Float64,para.na,para.nϵ,para.nζ,para.N )
+    val_func    = zeros(Float64,para.nH,para.nζ, para.nX, para.N + 1 ) 
+    H_pol_func  = zeros(Float64,para.nH,para.nζ, para.nX, para.N ) 
+    M_pol_func  = zeros(Float64,para.nH,para.nζ, para.nX, para.N ) 
+    c_pol_func  = zeros(Float64,para.nH,para.nζ, para.nX, para.N ) 
 
-    sols = Solutions(val_func,H_pol_func,X_pol_func, M_pol_func)
+    sols = Solutions(val_func,H_pol_func,c_pol_func, M_pol_func)
 
     return sols
 end 
@@ -133,60 +140,85 @@ end
 #########################################################
 # Functions 
 #########################################################
-function Solve_Problem(para::Model_Parameters, sols::Solutions)
-    # Solves the decision problem, outputs results back to the sols structure. 
+function flow_utility_func(c::Float64, H::Int64, para::Model_Parameters)
+    @unpack γ, θ = para
 
-    @unpack na, nϵ, nζ, N, a_grid, ϵ_grid, ζ_grid, r, σ, β, T_ϵ, T_ζ, κ = para
-    @unpack val_func, pol_func = sols
+    # Homeowners gain additional utility from housing services
+    if H == 1 
+        return (    ( c^(1-θ) * s^θ )^( 1 - γ )   ) / (1 - γ)
 
-    V_next = zeros(na, nϵ, nζ, N + 1) 
-    pol_next = zeros(na, nϵ, nζ, N + 1)
+    else 
+        
+        return (    ( c^(1-θ) )^( 1 - γ )   ) / (1 - γ)
+    end 
+end 
 
-    println("Begin solving the model backwards")
-    for j in N:-1:1  # Backward induction
-        println("Age is ", 24+j)
-        for e in 1:nϵ
-            ϵ = ϵ_grid[e]
+# Takes as input all states and choices necessary to pin down the budget constraint
+# and outputs the sum of bonds (cannot short-sell bonds)
+# If there is a house trade (buying or selling) then you must pay an adjustment cost.
+# I assume mortgages are portable.
+function budget_constraint(X::Float64, H::Float64, P::Float64, c::Float64, H_prime::Float64, para::Model_Parameters)
+    @unpack R_M, λ, rent_prop = para
 
-            for z in 1:nζ
-                ζ = ζ_grid[z]
-                candidate_max = -Inf                     
-                Y = exp(ϵ + ζ + κ[j,2])  # Construct the income process
+    # If there is no house trade and you own a home
+    if H_prime == 1 && H == 1
+        B = X - c - R_M * M - (M - M_prime)  # M_prime < M /(1 + r)
+    end 
+    # If there is no house trade and you rent
+    if H_prime == 0 && H == 0
+        B = X - c - R_M * M - (M - M_prime) - rent_prop * P # M_prime < M /(1 + r)
+    end 
+    
+    # Buying a home
+    if H_prime == 1 && H == 0 
+        B = X - c - R_M * M - (1+λ) * (P * H_prime - M_prime) 
+    end 
 
-                # Use that ap(a) is a weakly increasing function. 
-                start_index = 1 
-                for index_a in 1:na
-                    a = a_grid[index_a]
-                    coh =  (1 + r) * a + Y
-                    for index_ap in start_index:na 
-                        ap = a_grid[index_ap]
-                        c = coh - ap 
-
-                        if c > 0  # Feasibility check
-                            val = (c^(1 - σ)) / (1 - σ)
-
-                            for e_prime in 1:nϵ
-                                for z_prime in 1:nζ
-                                    val += β * T_ϵ[e,e_prime] * T_ζ[z,z_prime] * V_next[index_ap, e_prime, z_prime, j + 1]
-                                end
-                            end
-
-                            if val > candidate_max  # Check for max
-                                candidate_max = val
-                                pol_next[index_a, e, z, j] = ap
-                               # start_index = index_ap
-                                V_next[index_a, e, z, j] = candidate_max
-                            end   
-                        end
-                    end 
-                end 
-            end 
-        end
+    # Selling a home and renting
+    if H_prime == 0 && H == 1
+        B = X - c - R_M * M + (P * H) - (λ) * (P * H) - M_prime  - rent_prop * P 
     end
 
- 
-    sols.val_func .= V_next[:,:,:,1:N]
-    sols.pol_func .= pol_next[:,:,:,1:N]
+    return B
+end 
+
+# Reports the difference between debt taken out today and the collateral limit: 
+function mortgage_constraint(M::Float64, M_prime::Float64,H::Float64, H_prime::Float64,P::Float64, t::Float64, para::Model_Parameters)
+    @unpack_Model_Parameters para
+
+    # Not buying a home
+    if H >= H_prime 
+        out = M/(1 + R_M) - M_prime # You must eventually pre-pay your mortgage (when j = N, M_prime = 0)
+    end 
+
+    # Buying a home
+    if H_prime > H 
+       out =  M_prime - (1 - γ) * P * H_prime # Mortgage cannot exceed (1-d)% of the home value
+    end 
+
+    # In the terminal period, you must pay back your mortgage in its entirety. 
+    if t == N 
+        out = -1 * M_prime 
+    end 
+
+    return out
+end 
+
+# For HELOC evaluation
+# Reports the difference between debt taken out today and the collateral limit: 
+function debt_constraint(D::Float64, H_prime::Float64, P::Float64,para::Model_Parameters)
+    @unpack_Model_Parameters para
+
+    return (1-d) * H_prime * P - D
+end 
+
+# Creates a linear interpolation function using a mapping from grid x1 to outcome F. 
+#
+# Allows for extrapolation outside the grid (Flat extrapolation)
+function linear_interp(F::Array{Float64, 1})
+    interp = interpolate(F, BSpline(Linear()))
+    extrap = extrapolate(interp, Interpolations.Flat())
+    return  extrap
 end
 
 function simulate_model(para,sols,S::Int64)
@@ -254,7 +286,7 @@ end
 # Using the BPP method: 
 # Pass through of transitory shocks 
 
-function BPP_insurance_est(para,sols,transitory::Matrix{Float64},persistent::Matrix{Float64},consumption::Matrix{Float64},ρ::Float64)
+function BPP_insurance_est(transitory::Matrix{Float64},persistent::Matrix{Float64},consumption::Matrix{Float64},ρ::Float64)
     S = size(income,1)
     N = size(income,2)
     y = transitory .+ persistent
@@ -292,7 +324,7 @@ function BPP_insurance_est(para,sols,transitory::Matrix{Float64},persistent::Mat
     return α_ϵ, α_ζ
 end 
 
-function true_insurance(sols,transitory::Matrix{Float64},persistent::Matrix{Float64},consumption::Matrix{Float64},ρ::Float64)
+function true_insurance(transitory::Matrix{Float64},persistent::Matrix{Float64},consumption::Matrix{Float64},ρ::Float64)
     S = size(income,1)
     N = size(income,2)
 
