@@ -10,7 +10,7 @@ function Solve_Problem(para::Model_Parameters, sols::Solutions)
 
         # House prices are deterministic 
         P = P_bar * exp(b * (j-1))
-
+        
        # Generate interpolation functions for cash-on hand given each possible combination of the other states tomorrow 
        interp_functions = Vector{Any}(undef, 2 * nζ * nM) 
        for M_index in 1:nM

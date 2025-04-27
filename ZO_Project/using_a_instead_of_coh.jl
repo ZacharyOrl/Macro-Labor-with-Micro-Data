@@ -11,8 +11,8 @@ using Parameters, Interpolations, CSV, Plots,Distributions,LaTeXStrings,Statisti
 # Put your path to the dataset "estimation_results.csv" below 
 #indir = "C:/Users/zacha/Documents/2025 Spring/Advanced Macroeconomics/J. Carter Braxton/Homework/ZO_Project/"
 
-indir_images = "images"
-indir_parameters = "parameters"
+outdir_images = "/home/z/zorlando/ZO_Project/images"
+indir_parameters = "/home/z/zorlando/ZO_Project/parameters"
 
 ###########################################
 # Parameters
@@ -22,7 +22,7 @@ cd(indir_parameters)
 @with_kw struct Model_Parameters @deftype Float64
 
     # Housing parameters
-    b::Float64 = 0.016 # Annual Log House Price increase used in Cocco (2005) - he estimates 0.016 but uses a lower number to account for quality improvement. 
+    b::Float64 = 0.01 # Annual Log House Price increase used in Cocco (2005) - he estimates 0.016 but uses a lower number to account for quality improvement. 
     d::Float64 = 0.15                               # Limit on Home equity you can take out in any period. 
     #π::Float64 = compound(1 + 0.032, 5) - 1        # Moving shock probability 
     #δ::Float64 = compound(1 + 0.01, 5) - 1         # Housing Depreciation
@@ -34,8 +34,8 @@ cd(indir_parameters)
     # In 2000 it was $602 a month and home values were $119,600 so about renters spend about 6% of the typical home value renting 
     # In 1960, the typical house price was 58,600 (in 2000 dollars)
     # Source: https://www2.census.gov/programs-surveys/decennial/tables/time-series/coh-values/values-adj.txt
-    rent_prop::Float64 = 0.00
-    P_bar::Float64 = 583000 #About 2 x median household income in 1960 https://kinder.rice.edu/urbanedge/can-texas-afford-lose-its-housing-affordability-advantage
+    rent_prop::Float64 = 0.05
+    P_bar::Float64 = 65300 #About 2 x median household income in 1960 https://kinder.rice.edu/urbanedge/can-texas-afford-lose-its-housing-affordability-advantage
 
     # Utility function parameters
     # θ::Float64 = 0.1              # Utility from housing services relative to consumption
@@ -59,8 +59,8 @@ cd(indir_parameters)
     # Load discretized income processes estimated in "discretize_income_process.jl" 
 
     # Persistent Component 
-    ζ_grid::Vector{Float64} = rouwenhorst(σ_ζ/(1 - φ^2), φ, 5)[1]
-    T_ζ::Matrix{Float64} = rouwenhorst(σ_ζ/(1 - φ^2), φ, 5)[2]
+    ζ_grid::Vector{Float64} = rouwenhorst(σ_ζ/(1 - φ^2), φ, 10)[1]
+    T_ζ::Matrix{Float64} = rouwenhorst(σ_ζ/(1 - φ^2), φ, 10)[2]
 
     nζ::Int64 = length(ζ_grid)
 
@@ -68,8 +68,8 @@ cd(indir_parameters)
     σ_0_grid::Array{Float64,1}  = compute_initial_dist(0.0, sqrt(0.15), ζ_grid)
 
     # Transitory Component 
-    ϵ_grid::Vector{Float64} = rouwenhorst(σ_ϵ, 0.0, 3)[1]
-    T_ϵ::Matrix{Float64} = rouwenhorst(σ_ϵ, 0.0, 3)[2]
+    ϵ_grid::Vector{Float64} = rouwenhorst(σ_ϵ, 0.0, 5)[1]
+    T_ϵ::Matrix{Float64} = rouwenhorst(σ_ϵ, 0.0, 5)[2]
 
     nϵ::Int64 = length(ϵ_grid)
 
@@ -80,14 +80,14 @@ cd(indir_parameters)
     pun::Float64 = -10^8 
 
     # Cash-on-Hand grids
-    nX::Int64 = 50 # Number of cash on hand grid points 
+    na::Int64 = 100 # Number of cash on hand grid points 
 
     # Mortgage Debt
     # Not interested in studying the impact of house price risk on consumption 
     # So House Prices are deterministic. 
     M_min = 0.0 
     M_max = (1-γ) * P_bar * exp(b * (N-1))
-    nM::Int64 = 2 # Number of mortgage debt grid points 
+    nM::Int64 = 10 # Number of mortgage debt grid points 
 
     M_grid::Array{Float64,1} = collect(range(M_min, length = nM, stop = M_max))
 
@@ -99,11 +99,11 @@ end
 #initialize value function and policy functions
 mutable struct Solutions
 
-    val_func::Array{Float64,5}
-    H_pol_func::Array{Float64,5}
-    c_pol_func::Array{Float64,5}
-    M_pol_func::Array{Float64,5}
-
+    val_func::Array{Float64,6}
+    H_pol_func::Array{Float64,6}
+    a_pol_func::Array{Float64,6}
+    M_pol_func::Array{Float64,6}
+    D_pol_func::Array{Float64,6}
     # Housing taste parameters
     # For now 0, when housing taste is introduced it will be 0.2 
     # Following Paz-Pardo - I set the housing utility share ν to 0.2, based on NIPA data on budget shares
@@ -112,32 +112,32 @@ mutable struct Solutions
     # Proportional utility increase from owning rather than renting (1 = no increase)
     s::Float64
 
-    # X Grids 
-    X_grids::Array{Float64,2}
+    # a Grids 
+    a_grids::Array{Float64,2}
 
 end
 
 function build_solutions(para) 
 
-    val_func    = zeros(Float64, para.nH, para.nζ, para.nM, para.nX, para.N + 1 ) 
-    H_pol_func  = zeros(Float64, para.nH, para.nζ, para.nM, para.nX, para.N ) 
-    M_pol_func  = zeros(Float64, para.nH, para.nζ, para.nM, para.nX, para.N ) 
-    c_pol_func  = zeros(Float64, para.nH, para.nζ, para.nM, para.nX, para.N ) 
-
+    val_func    = zeros(Float64, para.nH, para.nϵ, para.nζ, para.nM, para.na, para.N + 1 ) 
+    H_pol_func  = zeros(Float64, para.nH, para.nϵ, para.nζ, para.nM, para.na, para.N ) 
+    M_pol_func  = zeros(Float64, para.nH, para.nϵ, para.nζ, para.nM, para.na, para.N ) 
+    a_pol_func  = zeros(Float64, para.nH, para.nϵ, para.nζ, para.nM, para.na, para.N ) 
+    D_pol_func  = zeros(Float64, para.nH, para.nϵ, para.nζ, para.nM, para.na, para.N ) 
     θ = 0.0 
     s = 1.0
 
     # Make a different grid for each period, 
     # to reflect that house prices rise each period.
-    X_grids = zeros(para.nX,para.N + 1)
+    a_grids = zeros(para.na,para.N + 1)
 
     for j = 1:para.N + 1
-        X_min = 0.01
-        X_max = 1000000  # Maximum cash on hand allowed
-        X_grids[:,j] = collect(range(start = X_min, length = para.nX, stop = X_max)) 
+        a_min = 0.01
+        a_max = 1000000  # Maximum assets on the grid rises
+        a_grids[:,j] = collect(range(start = a_min, length = para.na, stop = a_max)) 
     end 
 
-    sols = Solutions(val_func,H_pol_func,c_pol_func, M_pol_func, θ, s, X_grids)
+    sols = Solutions(val_func,H_pol_func,a_pol_func, M_pol_func, D_pol_func, θ, s, a_grids)
 
     return sols
 end 
@@ -160,7 +160,13 @@ include("rouwenhorst.jl")
 include("compute_initial_dist.jl")
 
 # Functions which solves the lifecycle problem of the agent
-include("Solve_Problem.jl")
+include("Solve_Problem_a.jl")
+
+# Function which simulates the model
+include("simulate_a_model.jl")
+
+# Function which calibrates the model 
+include("Calibrate_Model.jl")
 
 #########################################################
 # Functions 
@@ -183,7 +189,7 @@ end
 # and outputs the sum of bonds (cannot short-sell bonds)
 # If there is a house trade (buying or selling) then you must pay an adjustment cost.
 # I assume mortgages are portable.
-function budget_constraint( c::Float64, X::Float64, M_index::Int64, M_prime_index::Int64,
+function budget_constraint( ap::Float64, coh::Float64, M_index::Int64, M_prime_index::Int64,
                             H_index::Int64, H_prime_index::Int64, P::Float64, para::Model_Parameters)
     @unpack R_M, λ, rent_prop, M_grid = para
 
@@ -192,24 +198,24 @@ function budget_constraint( c::Float64, X::Float64, M_index::Int64, M_prime_inde
 
     # If there is no house trade and you own a home
     if H_prime_index == 2 && H_index == 2
-       A = X - c - R_M * M - (M - M_prime)  # M_prime < M /(1 + r)
+       c = coh - ap - R_M * M - (M - M_prime)  # M_prime < M /(1 + r)
     end 
     # If there is no house trade and you rent
     if H_prime_index == 1 && H_index == 1
-       A = X - c - rent_prop * P # M_prime < M /(1 + r)
+        c = coh - ap - rent_prop * P # M_prime < M /(1 + r)
     end 
     
     # Buying a home
     if H_prime_index == 2 && H_index == 1
-       A = X - c - (1+λ) * (P) + M_prime 
+        c = coh - ap - (1+λ) * (P) + M_prime 
     end 
 
     # Selling a home and renting
     if H_prime_index == 1 && H_index == 2
-       A = X - c - M + (1 - λ) * P  - rent_prop * P 
+        c = coh - ap - M + (1 - λ) * P  - rent_prop * P 
     end
 
-    return A
+    return c
 end 
 
 # Reports the difference between debt taken out today and the collateral limit: 
@@ -272,62 +278,124 @@ end
 ###################################################
 para,sols = Initialize_Model()
 Solve_Problem(para,sols)
+wealth, assets, consumption, persistent,transitory, cash_on_hand, mortgage, housing = simulate_model(para, sols, 10000)
 
-# Checks:
-@unpack_Model_Parameters para 
-@unpack val_func, H_pol_func, M_pol_func, c_pol_func, X_grids = sols
-
-c_pol_func[:,:,:,:,35]
-h_pol_func[1, 1, :,:,1]
-val_func[1, 1, 1,:,30]
-
-c_pol_func[1, 1, 1, 2,1]
-# Plots 
-plot(X_grids[:,1],h_pol_func[1, 3, 1, :,9])
-plot(val_func[2, 3, 10, :,1])
-
-# Find consumption for the second lowest on the grid in period j = 34
-j = 1
-X = X_grids[8,j]
-c = c_pol_func[1, 1, 1,8,j]
-H_prime = H_pol_func[1, 1, 1,8,j]
-M_prime = M_pol_func[1, 1, 1,8,j]
-X_index = 8
-H_index = 1
-H_prime_index = 2
-M_index = 1 
-M_prime_index = 1
-P = P_bar * exp(b * (j-1))
-ζ_index = 1
 ###################################################
-# Plots 
+# Plots no housing taste 
 ###################################################
 cd(outdir_images)
-
 start_age = 25 
 end_age = 59
 
 age_grid = collect(range(start_age, length = end_age - start_age + 1, stop = end_age))
 
 # Plot wealth statistics by age 
-plot(age_grid, mean(assets,dims = 1)[1,:], label = "Mean")
-plot!(age_grid, median(assets,dims = 1)[1,:],label = "Median",xlabel = "Age", ylabel = L"Wealth ($)", title = "Wealth Accumulation over the Lifecycle")
-savefig("PS1_Image_01.png") 
+plot(age_grid, mean(wealth,dims = 1)[1,:], label = "Mean")
+plot!(age_grid, median(wealth,dims = 1)[1,:],label = "Median",xlabel = "Age", ylabel = L"Wealth\n (1997 $) ", title = "Wealth Accumulation over the Lifecycle")
+plot!(age_grid, mean(assets,dims = 1)[1,:],label = "Mean Savings",xlabel = "Age",title = "Wealth Accumulation over the Lifecycle")
+savefig("ZO_Project_Image_01.png") 
 
 # Plot consumption variance by age 
 plot(age_grid, (var(log.(consumption),dims = 1)[1,:]),xlabel = "Age", ylabel = "Variance of logs",label = "",title = "Consumption Inequality by Age")
-savefig("PS1_Image_02.png") 
+savefig("ZO_Project_Image_02.png") 
 
 # Plot the histogram of assets for the age with the highest average wealth - to ensure the upper bound is reasonable
 # for this starting value. 
-histogram(assets[:,20],xlabel = L"Wealth ($)",label ="", title = "Distribution of Wealth at Age 45",normalize = :probability)
-savefig("PS1_Image_03.png") 
-######################################
-# Compute insurance coefficients
-######################################
-α_ϵ_hat,α_ζ_hat =   BPP_insurance_est(para,sols,transitory,persistent,consumption,para.ρ)
-α_ϵ,α_ζ = true_insurance(sols,transitory,persistent,consumption, para.ρ)
+histogram(wealth[:,20],xlabel = L"Wealth ($)",label ="Wealth", title = "Distribution of Wealth at Age 45",normalize = :probability)
+histogram!(assets[:,20],xlabel = L"Wealth ($)",label ="Savings", title = "Distribution of Wealth at Age 45",normalize = :probability)
+savefig("ZO_Project_Image_03.png") 
 
+# Plot the wealth of homeowners versus non-homeowners at 45
+wealth_homeowners = ifelse.(housing .== 1, wealth, missing)
+wealth_renter = ifelse.(housing .== 0, wealth, missing)
+
+plot(age_grid, mapslices(x -> mean(skipmissing(x)), wealth_homeowners; dims=1)[1,:], label = "Homeowner")
+plot!(age_grid, mapslices(x -> mean(skipmissing(x)), wealth_renter; dims=1)[1,:],xlabel = "Age", label = "Renter",ylabel = L" Mean Wealth\n (1997 $) ", title = "Wealth Accumulation over the Lifecycle")
+savefig("ZO_Project_Image_04.png") 
+
+
+# Plot the proportion of individuals who are homeowners in each period 
+plot(age_grid, mean(housing,dims = 1)[1,:], label = "", xlabel = "Age", ylabel = "Proportion Homeowners", title = "Homeownership Rate by Age")
+savefig("ZO_Project_Image_05.png") 
+
+# Finally, plot consumption inequality within groups 
+consumption_homeowners = ifelse.(housing .== 1, consumption, missing)
+consumption_renters = ifelse.(housing .== 0, consumption, missing)
+
+plot(age_grid, mapslices(x -> var(log.(skipmissing(x))), consumption_homeowners; dims=1)[1,:],xlabel = "Age", ylabel = "Variance of logs",label = "Homeowners",title = "Consumption Inequality by Age")
+plot!(age_grid, mapslices(x -> var(log.(skipmissing(x))), consumption_renters; dims=1)[1,:],xlabel = "Age", ylabel = "Variance of logs",label = "Renters",title = "Consumption Inequality by Age")
+savefig("ZO_Project_Image_06.png") 
+
+######################################
+# Add Housing Taste and Calibrate Model 
+######################################
+sols.θ  = 0.2  # Using the same housing taste value used in Paz-Pardo 
+data_moment = 0.791 # Homeownership rate of households with head aged 45 between 1970 and 1998 in the SCF. 
+
+calibrate_model(data_moment,para,sols)
+wealth, assets, consumption, persistent,transitory, cash_on_hand, mortgage, housing = simulate_model(para, sols, 10000)
+
+###################################################
+# Plots with Housing Taste
+###################################################
+cd(outdir_images)
+start_age = 25 
+end_age = 59
+
+age_grid = collect(range(start_age, length = end_age - start_age + 1, stop = end_age))
+
+# Plot wealth statistics by age 
+plot(age_grid, mean(wealth,dims = 1)[1,:], label = "Mean")
+plot!(age_grid, median(wealth,dims = 1)[1,:],label = "Median",xlabel = "Age", ylabel = L"Wealth\n (1997 $) ", title = "Wealth Accumulation over the Lifecycle")
+plot!(age_grid, mean(assets,dims = 1)[1,:],label = "Mean Savings",xlabel = "Age",title = "Wealth Accumulation over the Lifecycle")
+savefig("ZO_Project_Image_01.png") 
+
+# Plot consumption variance by age 
+plot(age_grid, (var(log.(consumption),dims = 1)[1,:]),xlabel = "Age", ylabel = "Variance of logs",label = "",title = "Consumption Inequality by Age")
+savefig("ZO_Project_Image_02.png") 
+
+# Plot the histogram of assets for the age with the highest average wealth - to ensure the upper bound is reasonable
+# for this starting value. 
+histogram(wealth[:,20],xlabel = L"Wealth ($)",label ="Wealth", title = "Distribution of Wealth at Age 45",normalize = :probability)
+histogram!(assets[:,20],xlabel = L"Wealth ($)",label ="Savings", title = "Distribution of Wealth at Age 45",normalize = :probability)
+savefig("ZO_Project_Image_03.png") 
+
+# Plot the wealth of homeowners versus non-homeowners at 45
+wealth_homeowners = ifelse.(housing .== 1, wealth, missing)
+wealth_renter = ifelse.(housing .== 0, wealth, missing)
+
+plot(age_grid, mapslices(x -> mean(skipmissing(x)), wealth_homeowners; dims=1)[1,:], label = "Homeowner")
+plot!(age_grid, mapslices(x -> mean(skipmissing(x)), wealth_renter; dims=1)[1,:],xlabel = "Age", label = "Renter",ylabel = L" Mean Wealth\n (1997 $) ", title = "Wealth Accumulation over the Lifecycle")
+savefig("ZO_Project_Image_04.png") 
+
+
+# Plot the proportion of individuals who are homeowners in each period 
+plot(age_grid, mean(housing,dims = 1)[1,:], label = "", xlabel = "Age", ylabel = "Proportion Homeowners", title = "Homeownership Rate by Age")
+savefig("ZO_Project_Image_05.png") 
+
+# Finally, plot consumption inequality within groups 
+consumption_homeowners = ifelse.(housing .== 1, consumption, missing)
+consumption_renters = ifelse.(housing .== 0, consumption, missing)
+
+plot(age_grid, mapslices(x -> var(log.(skipmissing(x))), consumption_homeowners; dims=1)[1,:],xlabel = "Age", ylabel = "Variance of logs",label = "Homeowners",title = "Consumption Inequality by Age")
+plot!(age_grid, mapslices(x -> var(log.(skipmissing(x))), consumption_renters; dims=1)[1,:],xlabel = "Age", ylabel = "Variance of logs",label = "Renters",title = "Consumption Inequality by Age")
+savefig("ZO_Project_Image_06.png") 
+
+######################################
+# Compute insurance coefficients and plot them over time
+######################################
+α_ϵ = zeros(7,1)
+α_ζ = zeros(7,1)
+for j = 1:5:para.N
+    index = Int64((j+4)/5)
+    α_ϵ[index],α_ζ[index] = true_insurance(sols,transitory[:,j:j+4],persistent[:,j:j+4],consumption[:,j:j+4], para.φ) 
+end
+
+age_grid = collect(range(start_age, length = 7, stop = end_age))
+plot(age_grid,α_ϵ,xlabel = "Age", ylabel = "Value", label = "Insurance against Transitory Shocks")
+plot!(age_grid,α_ζ, label =  "Insurance against Persistent Shocks")
+
+# Need to do this for renters and homeowners 
 ############################################################
 # Output
 ############################################################
@@ -342,3 +410,4 @@ results_df = DataFrame(
 CSV.write("insurance_coefficients.csv", results_df)
 
 println(results_df)
+
