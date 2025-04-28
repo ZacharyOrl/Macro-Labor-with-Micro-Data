@@ -51,10 +51,10 @@ function Solve_Problem_with_Heloc(para::Model_Parameters, sols::Solutions)
                                     end 
 
                                     coh =  (1 + R_F) * a + Y + rent_prop * P 
-
+                                    Home_Equity = P * H_prime - M_prime
                                     # Allow homeowner to take out debt against their home. 
-                                    if H_prime == 1 && j < N 
-                                        Home_Equity = P * H_prime - M_prime 
+                                    if H_prime == 1 && j < N && (Home_Equity/(P * H_prime)) > 0.2
+                                         
                                         start_ap = findfirst(x -> x > -(1-d) * Home_Equity , a_grids[:,j+1])
                                     else 
                                         start_ap = findfirst(x -> x >= 0.0 , a_grids[:,j+1])
@@ -110,9 +110,3 @@ function update_solutions(sols::Solutions)
         sols.a_grids[:,j] = collect(range(start = a_min, length = para.na, stop = a_max)) 
     end 
 end 
-
-
-
-Solve_Problem_with_Heloc(para,sols)
-
-wealth, assets, consumption, persistent,transitory, cash_on_hand, mortgage, housing = simulate_model(para, sols, 10000)

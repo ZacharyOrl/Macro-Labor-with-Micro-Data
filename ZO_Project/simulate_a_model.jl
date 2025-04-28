@@ -30,11 +30,12 @@ function simulate_model(para,sols,S::Int64)
         # Start with 0 assets, housing and mortgage debt.
         H_index = 1 
         M_index = 1
-        a_index = 1
 
         housing[s,1]  = H_grid[H_index]
 
         start_ap = findfirst(x -> x >= 0.0, a_grids[:,1])
+
+        a_index = start_ap
 
         assets[s,1]   = a_grids[start_ap, 1]
         mortgage[s,1] = M_grid[M_index]
@@ -54,7 +55,7 @@ function simulate_model(para,sols,S::Int64)
         a_prime_index = findfirst(x -> x == assets[s,2], a_grids[:,2])
         
         # Compute savings 
-        wealth[s,1] = assets[s,1] + P * housing[s,2] - mortgage[s,2]
+        wealth[s,1] = assets[s,1] + P * housing[s,1] - mortgage[s,1]
 
         # Compute consumption 
         consumption[s,1] = budget_constraint(assets[s,2], cash_on_hand[s,1], M_index, M_prime_index, H_index, H_prime_index, P, para )
@@ -98,8 +99,8 @@ function simulate_model(para,sols,S::Int64)
             M_prime_index = findfirst(x -> x == mortgage[s,n+1], M_grid) # Find the index of the previous choice of mortgages (it will be on the grid). 
             a_prime_index = findfirst(x -> x == assets[s,n+1], a_grids[:,n+1])
 
-            # Compute savings 
-            wealth[s,n] = assets[s,n] + P * housing[s,n+1] - mortgage[s,n]
+            # Compute wealth
+            wealth[s,n] = assets[s,n] + P * housing[s,n] - mortgage[s,n]
 
             # Compute consumption 
             consumption[s,n] = budget_constraint(assets[s,n+1],cash_on_hand[s,n],
@@ -117,7 +118,8 @@ function simulate_model(para,sols,S::Int64)
         
 
         end 
+        wealth[s,N+1] = assets[s,N+1] + P * housing[s,N+1] - mortgage[s,N+1]
     end 
 
-    return wealth[:,1:N], assets[:,1:N], consumption[:,1:N], persistent[:,1:N],transitory[:,1:N], cash_on_hand[:,1:N], mortgage[:,1:N], housing[:,1:N]
+    return wealth, assets, consumption, persistent,transitory, cash_on_hand, mortgage, housing
 end

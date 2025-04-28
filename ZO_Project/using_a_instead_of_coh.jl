@@ -23,7 +23,7 @@ cd(indir_parameters)
 
     # Housing parameters
     b::Float64 = 0.01 # Annual Log House Price increase used in Cocco (2005) - he estimates 0.016 but uses a lower number to account for quality improvement. 
-    d::Float64 = 0.15                               # Limit on Home equity you can take out in any period. 
+    d::Float64 = 0.2                               # Limit on Home equity you can take out in any period. 
     #π::Float64 = compound(1 + 0.032, 5) - 1        # Moving shock probability 
     #δ::Float64 = compound(1 + 0.01, 5) - 1         # Housing Depreciation
     λ::Float64 = 0.05                               # House-transaction cost
@@ -168,6 +168,13 @@ include("simulate_a_model.jl")
 # Function which calibrates the model 
 include("Calibrate_Model.jl")
 
+# Function which omputes insurance coefficients
+include("compute_insurance.jl")
+
+# Function which omputes insurance coefficients
+include("Solve_Model_with_Debt.jl")
+
+
 #########################################################
 # Functions 
 #########################################################
@@ -285,7 +292,7 @@ wealth, assets, consumption, persistent,transitory, cash_on_hand, mortgage, hous
 ###################################################
 cd(outdir_images)
 start_age = 25 
-end_age = 59
+end_age = 60
 
 age_grid = collect(range(start_age, length = end_age - start_age + 1, stop = end_age))
 
@@ -332,7 +339,7 @@ savefig("ZO_Project_Image_06.png")
 sols.θ  = 0.2  # Using the same housing taste value used in Paz-Pardo 
 data_moment = 0.791 # Homeownership rate of households with head aged 45 between 1970 and 1998 in the SCF. 
 
-calibrate_model(data_moment,para,sols)
+calibrate_model(data_moment,para,sols) # s = approx 1.03 hits the moment 
 wealth, assets, consumption, persistent,transitory, cash_on_hand, mortgage, housing = simulate_model(para, sols, 10000)
 
 ###################################################
@@ -340,7 +347,7 @@ wealth, assets, consumption, persistent,transitory, cash_on_hand, mortgage, hous
 ###################################################
 cd(outdir_images)
 start_age = 25 
-end_age = 59
+end_age = 60
 
 age_grid = collect(range(start_age, length = end_age - start_age + 1, stop = end_age))
 
@@ -395,7 +402,19 @@ age_grid = collect(range(start_age, length = 7, stop = end_age))
 plot(age_grid,α_ϵ,xlabel = "Age", ylabel = "Value", label = "Insurance against Transitory Shocks")
 plot!(age_grid,α_ζ, label =  "Insurance against Persistent Shocks")
 
-# Need to do this for renters and homeowners 
+# Need to compare to insurance under the no-housing model. 
+# and for homeowners vs renters. 
+
+α_ϵ,α_ζ = true_insurance(sols,transitory[:,1:35],persistent[:,1:35],consumption[:,1:35], para.φ) 
+############################################################
+# Policy evaluation: HELOC
+############################################################
+Solve_Problem_with_Heloc(para,sols)
+
+wealth, assets, consumption, persistent,transitory, cash_on_hand, mortgage, housing = simulate_model(para, sols, 10000)
+α_ϵ,α_ζ = true_insurance(sols,transitory[:,1:35],persistent[:,1:35],consumption[:,1:35], para.φ) 
+# HELOC doesn't improve insurance all that much: individuals can only access it if 
+# they are least in need. 
 ############################################################
 # Output
 ############################################################
