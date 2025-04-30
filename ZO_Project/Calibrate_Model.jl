@@ -22,15 +22,15 @@ function calibrate_model(data_moment::Float64, para::Model_Parameters, sols::Sol
         # The moment I want to match is the homeownership rate at age 45. 
         model_moment = mean(housing[:,20])
 
-        println("Model Moment is: ", model_moment, " n is: ", n, " s is : ", s )
-
         error = abs(data_moment - model_moment)
 
         # Update s_guess in the same direction as the miss
         s_guess = s_guess +  0.5 * (data_moment - model_moment)/model_moment
         n += 1
+        println("Model Moment is: ", model_moment, " n is: ", n, " s guess is : ", s_guess)
     end 
 
+    println("Final s is: ",sols.s)
 end 
 
 

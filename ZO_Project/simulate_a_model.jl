@@ -2,7 +2,7 @@ function simulate_model(para,sols,S::Int64)
     # Simulates the solved model S times, returns assets, consumption, income, persistent shock and transitroy shock by age. 
 
     @unpack_Model_Parameters para
-    @unpack val_func,a_pol_func,M_pol_func, H_pol_func, a_grids = sols
+    @unpack val_func,a_pol_func,M_pol_func, H_pol_func, rent_prop, P_bar, a_grids = sols
 
     # Distribution over the initial permanent component
     initial_dist = Categorical(σ_0_grid)
@@ -58,7 +58,7 @@ function simulate_model(para,sols,S::Int64)
         wealth[s,1] = assets[s,1] + P * housing[s,1] - mortgage[s,1]
 
         # Compute consumption 
-        consumption[s,1] = budget_constraint(assets[s,2], cash_on_hand[s,1], M_index, M_prime_index, H_index, H_prime_index, P, para )
+        consumption[s,1] = budget_constraint(assets[s,2], cash_on_hand[s,1], M_index, M_prime_index, H_index, H_prime_index, P, para, rent_prop)
 
         if consumption[s,1] < 0
             println("s is: ",s, " n is: ",1, " Consumption is: ", consumption[s,1], "assets are: ", assets[s,1], "asset policy: ", assets[s,2])
@@ -109,7 +109,8 @@ function simulate_model(para,sols,S::Int64)
                 findfirst(x -> x == housing[s,n], H_grid),
                 findfirst(x -> x == housing[s,n+1], H_grid),
                 P,
-                para
+                para, 
+                rent_prop
             )
 
             if consumption[s,n] < 0

@@ -23,7 +23,7 @@ cd(indir_parameters)
 
     # Housing parameters
     b::Float64 = 0.01 # Annual Log House Price increase used in Cocco (2005) - he estimates 0.016 but uses a lower number to account for quality improvement. 
-    d::Float64 = 0.2                               # Limit on Home equity you can take out in any period. 
+    d::Float64 = 0.2                                # Limit on Home equity you can take out in any period. 
     #π::Float64 = compound(1 + 0.032, 5) - 1        # Moving shock probability 
     #δ::Float64 = compound(1 + 0.01, 5) - 1         # Housing Depreciation
     λ::Float64 = 0.05                               # House-transaction cost
@@ -34,8 +34,6 @@ cd(indir_parameters)
     # In 2000 it was $602 a month and home values were $119,600 so about renters spend about 6% of the typical home value renting 
     # In 1960, the typical house price was 58,600 (in 2000 dollars)
     # Source: https://www2.census.gov/programs-surveys/decennial/tables/time-series/coh-values/values-adj.txt
-    rent_prop::Float64 = 0.05
-    P_bar::Float64 = 65300 #About 2 x median household income in 1960 https://kinder.rice.edu/urbanedge/can-texas-afford-lose-its-housing-affordability-advantage
 
     # Utility function parameters
     # θ::Float64 = 0.1              # Utility from housing services relative to consumption
@@ -49,8 +47,8 @@ cd(indir_parameters)
 
     # Variance parameters 
     # Same as in Week 1
-    σ_ζ::Float64 = 0.02285
-    σ_ϵ::Float64 = 0.03863
+    σ_ζ::Float64 = 0.022853919013786687
+    σ_ϵ::Float64 = 0.03863817595174229
 
     # Correlation parameters
     # Same as in Week 1
@@ -59,8 +57,8 @@ cd(indir_parameters)
     # Load discretized income processes estimated in "discretize_income_process.jl" 
 
     # Persistent Component 
-    ζ_grid::Vector{Float64} = rouwenhorst(σ_ζ/(1 - φ^2), φ, 10)[1]
-    T_ζ::Matrix{Float64} = rouwenhorst(σ_ζ/(1 - φ^2), φ, 10)[2]
+    ζ_grid::Vector{Float64} = rouwenhorst(σ_ζ/(1 - φ^2), φ, 5)[1]
+    T_ζ::Matrix{Float64} = rouwenhorst(σ_ζ/(1 - φ^2), φ, 5)[2]
 
     nζ::Int64 = length(ζ_grid)
 
@@ -68,8 +66,8 @@ cd(indir_parameters)
     σ_0_grid::Array{Float64,1}  = compute_initial_dist(0.0, sqrt(0.15), ζ_grid)
 
     # Transitory Component 
-    ϵ_grid::Vector{Float64} = rouwenhorst(σ_ϵ, 0.0, 5)[1]
-    T_ϵ::Matrix{Float64} = rouwenhorst(σ_ϵ, 0.0, 5)[2]
+    ϵ_grid::Vector{Float64} = rouwenhorst(σ_ϵ, 0.0, 10)[1]
+    T_ϵ::Matrix{Float64} = rouwenhorst(σ_ϵ, 0.0, 10)[2]
 
     nϵ::Int64 = length(ϵ_grid)
 
@@ -86,8 +84,8 @@ cd(indir_parameters)
     # Not interested in studying the impact of house price risk on consumption 
     # So House Prices are deterministic. 
     M_min = 0.0 
-    M_max = (1-γ) * P_bar * exp(b * (N-1))
-    nM::Int64 = 10 # Number of mortgage debt grid points 
+    M_max = (1-γ) * 65300 * exp(b * (N-1))
+    nM::Int64 = 20 # Number of mortgage debt grid points 
 
     M_grid::Array{Float64,1} = collect(range(M_min, length = nM, stop = M_max))
 
@@ -112,6 +110,12 @@ mutable struct Solutions
     # Proportional utility increase from owning rather than renting (1 = no increase)
     s::Float64
 
+    # Rent proportion 
+    rent_prop::Float64 
+
+    # Initial House price
+    P_bar::Float64
+
     # a Grids 
     a_grids::Array{Float64,2}
 
@@ -126,6 +130,8 @@ function build_solutions(para)
     D_pol_func  = zeros(Float64, para.nH, para.nϵ, para.nζ, para.nM, para.na, para.N ) 
     θ = 0.0 
     s = 1.0
+    rent_prop = 0.05 
+    P_bar = 65300
 
     # Make a different grid for each period, 
     # to reflect that house prices rise each period.
@@ -133,11 +139,11 @@ function build_solutions(para)
 
     for j = 1:para.N + 1
         a_min = 0.01
-        a_max = 1000000  # Maximum assets on the grid rises
-        a_grids[:,j] = collect(range(start = a_min, length = para.na, stop = a_max)) 
+        a_max = 500000  # Maximum assets on the grid rises
+        a_grids[:,j] = exp.(collect(range(start = log(a_min), length = para.na, stop = log(a_max))))
     end 
 
-    sols = Solutions(val_func,H_pol_func,a_pol_func, M_pol_func, D_pol_func, θ, s, a_grids)
+    sols = Solutions(val_func,H_pol_func,a_pol_func, M_pol_func, D_pol_func, θ, s, rent_prop, P_bar, a_grids)
 
     return sols
 end 
@@ -197,8 +203,8 @@ end
 # If there is a house trade (buying or selling) then you must pay an adjustment cost.
 # I assume mortgages are portable.
 function budget_constraint( ap::Float64, coh::Float64, M_index::Int64, M_prime_index::Int64,
-                            H_index::Int64, H_prime_index::Int64, P::Float64, para::Model_Parameters)
-    @unpack R_M, λ, rent_prop, M_grid = para
+                            H_index::Int64, H_prime_index::Int64, P::Float64, para::Model_Parameters, rent_prop::Float64)
+    @unpack R_M, λ, M_grid = para
 
     M = M_grid[M_index]
     M_prime = M_grid[M_prime_index]
@@ -260,78 +266,12 @@ function mortgage_constraint(M_index::Int64, M_prime_index::Int64, H_index::Int6
     return out
 end 
 
-# For HELOC evaluation
-# Reports the difference between debt taken out today and the collateral limit: 
-function debt_constraint(D::Float64, H_prime::Float64, P::Float64,para::Model_Parameters)
-    @unpack_Model_Parameters para
-
-    return (1-d) * H_prime * P - D
-end 
-
-# Creates a linear interpolation function using a mapping from grid x1 to outcome F. 
-#
-# Allows for extrapolation outside the grid (Flat extrapolation)
-function linear_interp(F::Vector{Float64}, x1::Vector{Float64})
-    x1_grid = range(minimum(x1), maximum(x1), length=length(x1))
-
-    interp = interpolate(F, BSpline(Linear()))
-    scaled_interp = Interpolations.scale(interp,x1_grid)
-    extrap = extrapolate(scaled_interp, Interpolations.Flat())
-    return  extrap
-end
-
 ###################################################
 # Solve the model and simulate 
 ###################################################
 para,sols = Initialize_Model()
 Solve_Problem(para,sols)
-wealth, assets, consumption, persistent,transitory, cash_on_hand, mortgage, housing = simulate_model(para, sols, 10000)
-
-###################################################
-# Plots no housing taste 
-###################################################
-cd(outdir_images)
-start_age = 25 
-end_age = 60
-
-age_grid = collect(range(start_age, length = end_age - start_age + 1, stop = end_age))
-
-# Plot wealth statistics by age 
-plot(age_grid, mean(wealth,dims = 1)[1,:], label = "Mean")
-plot!(age_grid, median(wealth,dims = 1)[1,:],label = "Median",xlabel = "Age", ylabel = L"Wealth\n (1997 $) ", title = "Wealth Accumulation over the Lifecycle")
-plot!(age_grid, mean(assets,dims = 1)[1,:],label = "Mean Savings",xlabel = "Age",title = "Wealth Accumulation over the Lifecycle")
-savefig("ZO_Project_Image_01.png") 
-
-# Plot consumption variance by age 
-plot(age_grid, (var(log.(consumption),dims = 1)[1,:]),xlabel = "Age", ylabel = "Variance of logs",label = "",title = "Consumption Inequality by Age")
-savefig("ZO_Project_Image_02.png") 
-
-# Plot the histogram of assets for the age with the highest average wealth - to ensure the upper bound is reasonable
-# for this starting value. 
-histogram(wealth[:,20],xlabel = L"Wealth ($)",label ="Wealth", title = "Distribution of Wealth at Age 45",normalize = :probability)
-histogram!(assets[:,20],xlabel = L"Wealth ($)",label ="Savings", title = "Distribution of Wealth at Age 45",normalize = :probability)
-savefig("ZO_Project_Image_03.png") 
-
-# Plot the wealth of homeowners versus non-homeowners at 45
-wealth_homeowners = ifelse.(housing .== 1, wealth, missing)
-wealth_renter = ifelse.(housing .== 0, wealth, missing)
-
-plot(age_grid, mapslices(x -> mean(skipmissing(x)), wealth_homeowners; dims=1)[1,:], label = "Homeowner")
-plot!(age_grid, mapslices(x -> mean(skipmissing(x)), wealth_renter; dims=1)[1,:],xlabel = "Age", label = "Renter",ylabel = L" Mean Wealth\n (1997 $) ", title = "Wealth Accumulation over the Lifecycle")
-savefig("ZO_Project_Image_04.png") 
-
-
-# Plot the proportion of individuals who are homeowners in each period 
-plot(age_grid, mean(housing,dims = 1)[1,:], label = "", xlabel = "Age", ylabel = "Proportion Homeowners", title = "Homeownership Rate by Age")
-savefig("ZO_Project_Image_05.png") 
-
-# Finally, plot consumption inequality within groups 
-consumption_homeowners = ifelse.(housing .== 1, consumption, missing)
-consumption_renters = ifelse.(housing .== 0, consumption, missing)
-
-plot(age_grid, mapslices(x -> var(log.(skipmissing(x))), consumption_homeowners; dims=1)[1,:],xlabel = "Age", ylabel = "Variance of logs",label = "Homeowners",title = "Consumption Inequality by Age")
-plot!(age_grid, mapslices(x -> var(log.(skipmissing(x))), consumption_renters; dims=1)[1,:],xlabel = "Age", ylabel = "Variance of logs",label = "Renters",title = "Consumption Inequality by Age")
-savefig("ZO_Project_Image_06.png") 
+wealth_invest, assets_invest, consumption_invest, persistent_invest,transitory_invest, cash_on_hand_invest, mortgage_invest, housing_invest = simulate_model(para, sols, 10000)
 
 ######################################
 # Add Housing Taste and Calibrate Model 
@@ -339,91 +279,223 @@ savefig("ZO_Project_Image_06.png")
 sols.θ  = 0.2  # Using the same housing taste value used in Paz-Pardo 
 data_moment = 0.791 # Homeownership rate of households with head aged 45 between 1970 and 1998 in the SCF. 
 
-calibrate_model(data_moment,para,sols) # s = approx 1.03 hits the moment 
-wealth, assets, consumption, persistent,transitory, cash_on_hand, mortgage, housing = simulate_model(para, sols, 10000)
+calibrate_model(data_moment,para,sols) # s = approx 1.049 hits the moment 
+wealth_taste, assets_taste, consumption_taste, persistent_taste,transitory_taste, cash_on_hand_taste, mortgage_taste, housing_taste = simulate_model(para, sols, 10000)
+############################################################
+# Policy evaluation: HELOC
+############################################################
+para,sols = Initialize_Model()
+sols.θ  = 0.2
+sols.s = 1.049
+Solve_Problem_with_Heloc(para,sols)
 
-###################################################
-# Plots with Housing Taste
-###################################################
+wealth_heloc, assets_heloc, consumption_heloc, persistent_heloc,transitory_heloc, cash_on_hand_heloc, mortgage_heloc, housing_heloc = simulate_model(para, sols, 10000)
+############################################################
+# Baseline Comparison
+############################################################
+para,sols = Initialize_Model()
+sols.rent_prop = 0.00
+sols.P_bar = 653000000
+
+Solve_Problem(para, sols)
+
+wealth_b, assets_b, consumption_b, persistent_b,transitory_b, cash_on_hand_b, mortgage_b, housing_b = simulate_model(para, sols, 10000)
+############################################################
+# Plots
+############################################################
 cd(outdir_images)
 start_age = 25 
 end_age = 60
-
+default(linewidth = 2) 
 age_grid = collect(range(start_age, length = end_age - start_age + 1, stop = end_age))
 
-# Plot wealth statistics by age 
-plot(age_grid, mean(wealth,dims = 1)[1,:], label = "Mean")
-plot!(age_grid, median(wealth,dims = 1)[1,:],label = "Median",xlabel = "Age", ylabel = L"Wealth\n (1997 $) ", title = "Wealth Accumulation over the Lifecycle")
-plot!(age_grid, mean(assets,dims = 1)[1,:],label = "Mean Savings",xlabel = "Age",title = "Wealth Accumulation over the Lifecycle")
-savefig("ZO_Project_Image_01.png") 
-
-# Plot consumption variance by age 
-plot(age_grid, (var(log.(consumption),dims = 1)[1,:]),xlabel = "Age", ylabel = "Variance of logs",label = "",title = "Consumption Inequality by Age")
-savefig("ZO_Project_Image_02.png") 
+# Investment 
 
 # Plot the histogram of assets for the age with the highest average wealth - to ensure the upper bound is reasonable
 # for this starting value. 
-histogram(wealth[:,20],xlabel = L"Wealth ($)",label ="Wealth", title = "Distribution of Wealth at Age 45",normalize = :probability)
-histogram!(assets[:,20],xlabel = L"Wealth ($)",label ="Savings", title = "Distribution of Wealth at Age 45",normalize = :probability)
+histogram(wealth_invest[:,20],xlabel = L"Wealth ($)",label ="Wealth", title = "Distribution of Wealth at Age 45",normalize = :probability)
+histogram!(assets_invest[:,20],xlabel = L"Wealth ($)",label ="Savings", title = "Distribution of Wealth at Age 45",normalize = :probability)
 savefig("ZO_Project_Image_03.png") 
 
 # Plot the wealth of homeowners versus non-homeowners at 45
-wealth_homeowners = ifelse.(housing .== 1, wealth, missing)
-wealth_renter = ifelse.(housing .== 0, wealth, missing)
+wealth_homeowners_invest = ifelse.(housing_invest .== 1, wealth_invest, missing)
+wealth_renter_invest = ifelse.(housing .== 0, wealth, missing)
 
-plot(age_grid, mapslices(x -> mean(skipmissing(x)), wealth_homeowners; dims=1)[1,:], label = "Homeowner")
-plot!(age_grid, mapslices(x -> mean(skipmissing(x)), wealth_renter; dims=1)[1,:],xlabel = "Age", label = "Renter",ylabel = L" Mean Wealth\n (1997 $) ", title = "Wealth Accumulation over the Lifecycle")
+plot(age_grid, mapslices(x -> mean(skipmissing(x)), wealth_homeowners_invest; dims=1)[1,:], label = "Homeowner")
+plot!(age_grid, mapslices(x -> mean(skipmissing(x)), wealth_renter_invest; dims=1)[1,:],xlabel = "Age", label = "Renter",ylabel = L" Mean Wealth\n (1997 $) ", title = "Wealth Accumulation over the Lifecycle")
 savefig("ZO_Project_Image_04.png") 
 
 
 # Plot the proportion of individuals who are homeowners in each period 
-plot(age_grid, mean(housing,dims = 1)[1,:], label = "", xlabel = "Age", ylabel = "Proportion Homeowners", title = "Homeownership Rate by Age")
+plot(age_grid, mean(housing_invest,dims = 1)[1,:], label = "", xlabel = "Age", ylabel = "Proportion Homeowners", title = "Homeownership Rate by Age")
 savefig("ZO_Project_Image_05.png") 
 
 # Finally, plot consumption inequality within groups 
-consumption_homeowners = ifelse.(housing .== 1, consumption, missing)
-consumption_renters = ifelse.(housing .== 0, consumption, missing)
+consumption_homeowners_invest = ifelse.(housing_invest .== 1, consumption, missing)
+consumption_renters_invest = ifelse.(housing_invest .== 0, consumption, missing)
 
-plot(age_grid, mapslices(x -> var(log.(skipmissing(x))), consumption_homeowners; dims=1)[1,:],xlabel = "Age", ylabel = "Variance of logs",label = "Homeowners",title = "Consumption Inequality by Age")
-plot!(age_grid, mapslices(x -> var(log.(skipmissing(x))), consumption_renters; dims=1)[1,:],xlabel = "Age", ylabel = "Variance of logs",label = "Renters",title = "Consumption Inequality by Age")
+plot(age_grid, mapslices(x -> var(log.(skipmissing(x))), consumption_homeowners_invest; dims=1)[1,:],xlabel = "Age", ylabel = "Variance of logs",label = "Homeowners",title = "Consumption Inequality by Age")
+plot!(age_grid, mapslices(x -> var(log.(skipmissing(x))), consumption_renters_invest; dims=1)[1,:],xlabel = "Age", ylabel = "Variance of logs",label = "Renters",title = "Consumption Inequality by Age")
 savefig("ZO_Project_Image_06.png") 
+
+# Housing Taste 
+
+# Plot the histogram of assets for the age with the highest average wealth - to ensure the upper bound is reasonable
+# for this starting value. 
+histogram(wealth_taste[:,20],xlabel = L"Wealth ($)",label ="Wealth", title = "Distribution of Wealth at Age 45",normalize = :probability)
+histogram!(assets_taste[:,20],xlabel = L"Wealth ($)",label ="Savings", title = "Distribution of Wealth at Age 45",normalize = :probability)
+savefig("ZO_Project_Image_09.png") 
+
+# Plot the wealth of homeowners versus non-homeowners at 45
+wealth_homeowners_taste = ifelse.(housing_taste .== 1, wealth_taste, missing)
+wealth_renter_taste = ifelse.(housing_taste .== 0, wealth_taste, missing)
+
+plot(age_grid, mapslices(x -> mean(skipmissing(x)), wealth_homeowners_taste; dims=1)[1,:], label = "Homeowner")
+plot!(age_grid, mapslices(x -> mean(skipmissing(x)), wealth_renter_taste; dims=1)[1,:],xlabel = "Age", label = "Renter",ylabel = L" Mean Wealth\n (1997 $) ", title = "Wealth Accumulation over the Lifecycle")
+savefig("ZO_Project_Image_10.png") 
+
+
+# Plot the proportion of individuals who are homeowners in each period 
+plot(age_grid, mean(housing_taste,dims = 1)[1,:], label = "", xlabel = "Age", ylabel = "Proportion Homeowners", title = "Homeownership Rate by Age")
+savefig("ZO_Project_Image_11.png") 
+
+# Finally, plot consumption inequality within groups 
+consumption_homeowners_taste = ifelse.(housing_taste .== 1, consumption_taste, missing)
+consumption_renters_taste = ifelse.(housing .== 0, consumption_taste, missing)
+
+plot(age_grid, mapslices(x -> var(log.(skipmissing(x))), consumption_homeowners_taste; dims=1)[1,:],xlabel = "Age", ylabel = "Variance of logs",label = "Homeowners",title = "Consumption Inequality by Age")
+plot!(age_grid, mapslices(x -> var(log.(skipmissing(x))), consumption_renters_taste; dims=1)[1,:],xlabel = "Age", ylabel = "Variance of logs",label = "Renters",title = "Consumption Inequality by Age")
+savefig("ZO_Project_Image_12.png") 
+
+
+############################################################
+# Wealth Accumulation
+############################################################
+# Baseline 
+plot(age_grid, mean(wealth_b,dims = 1)[1,:], label = "Mean")
+plot!(age_grid, median(wealth_b,dims = 1)[1,:],label = "Median",xlabel = "Age", ylabel = L"Wealth\n (1997 $) ")
+savefig("ZO_Project_Image_wealth_baseline.png") 
+
+# Investment 
+plot(age_grid, mean(wealth_invest,dims = 1)[1,:], label = "Mean")
+plot!(age_grid, median(wealth_invest,dims = 1)[1,:],label = "Median",xlabel = "Age", ylabel = L"Wealth\n (1997 $) ")
+plot!(age_grid, mean(assets_invest,dims = 1)[1,:],label = "Mean Savings",xlabel = "Age",title = "Wealth Accumulation over the Lifecycle")
+savefig("ZO_Project_Image_01.png") 
+
+# Taste 
+# Plot wealth statistics by age 
+plot(age_grid, mean(wealth_taste,dims = 1)[1,:], label = "Mean")
+plot!(age_grid, median(wealth_taste,dims = 1)[1,:],label = "Median",xlabel = "Age", ylabel = L"Wealth\n (1997 $) ")
+plot!(age_grid, mean(assets_taste,dims = 1)[1,:],label = "Mean Savings",xlabel = "Age")
+savefig("ZO_Project_Image_wealth_taste.png") 
+
+# HELOC 
+plot(age_grid, mean(wealth_heloc,dims = 1)[1,:], label = "Mean")
+plot!(age_grid, median(wealth_heloc,dims = 1)[1,:],label = "Median",xlabel = "Age", ylabel = L"Wealth\n (1997 $) ", title = "Wealth Accumulation over the Lifecycle")
+plot!(age_grid, mean(assets_heloc,dims = 1)[1,:],label = "Mean Savings",xlabel = "Age",title = "Wealth Accumulation over the Lifecycle")
+
+# HELOC doesn't improve insurance all that much: individuals can only access it if 
+# they are least in need. 
+# α_ϵ,α_ζ = 0.7028475345024134, 0.25062141065724386
+
+# All together - mean
+plot(age_grid, mean(wealth_b,dims = 1)[1,:], label = "Baseline", ylabel = L"Wealth\n (1997 $) ", title = "Mean Wealth Accumulation by Age")
+plot!(age_grid, mean(wealth_invest,dims = 1)[1,:], label = "Investment")
+plot!(age_grid, mean(wealth_taste,dims = 1)[1,:], label = "Taste")
+plot!(age_grid, mean(wealth_heloc,dims = 1)[1,:], label = "HELOC")
+savefig("ZO_Project_Image_wealth_mean.png") 
+# Median
+plot(age_grid, median(wealth_b,dims = 1)[1,:], label = "Baseline", title = "Median Wealth Accumulation by Age")
+plot!(age_grid, median(wealth_invest,dims = 1)[1,:], label = "Investment")
+plot!(age_grid, median(wealth_taste,dims = 1)[1,:], label = "Taste")
+plot!(age_grid, median(wealth_heloc,dims = 1)[1,:], label = "HELOC")
+savefig("ZO_Project_Image_wealth_median.png") 
+# Savings
+plot(age_grid, mean(assets_b,dims = 1)[1,:], label = "Baseline",ylabel = L"Savings \n ($ 1997)", title = "Mean Savings by Age")
+plot!(age_grid, mean(assets_taste,dims = 1)[1,:], label = "Taste")
+plot!(age_grid, mean(assets_heloc,dims = 1)[1,:], label = "HELOC")
+savefig("ZO_Project_Image_savings.png") 
+############################################################
+# Consumption inequality 
+############################################################
+plot(age_grid, (var(log.(consumption_b),dims = 1)[1,:]),xlabel = "Age", ylabel = "Variance of logs",label = "No Housing", title = "Consumption Inequality by Age")
+plot!(age_grid, (var(log.(consumption_taste),dims = 1)[1,:]),xlabel = "Age", ylabel = "Variance of logs",label = "Housing Taste")
+plot!(age_grid, (var(log.(consumption_heloc),dims = 1)[1,:]),xlabel = "Age", ylabel = "Variance of logs",label = "HELOC Counterfactual")
+savefig("ZO_Project_Image_inequality.png") 
+
+############################################################
+# Housing Ownership
+############################################################
+# Housing
+plot(age_grid, mean(housing_b,dims = 1)[1,:], label = "Baseline", ylabel = "Proportion Homeowners", xlabel = "Age", title = "Home Ownership by Age")
+plot!(age_grid, mean(housing_invest,dims = 1)[1,:], label = "Investment")
+plot!(age_grid, mean(housing_taste,dims = 1)[1,:], label = "Taste")
+plot!(age_grid, mean(housing_heloc,dims = 1)[1,:], label = "HELOC")
+savefig("ZO_Project_Image_homeownership.png") 
+
+# Mortgages 
+plot(age_grid, mean(mortgage_b,dims = 1)[1,:], label = "Baseline",xlabel = "Age",ylabel = L"Debt \n ($ 1997)", title = "Mean Mortgage Debt by Age")
+plot!(age_grid, mean(mortgage_invest,dims = 1)[1,:], label = "Investment")
+plot!(age_grid, mean(mortgage_taste,dims = 1)[1,:], label = "Taste")
+plot!(age_grid, mean(mortgage_heloc,dims = 1)[1,:], label = "HELOC")
+savefig("ZO_Project_Image_mortgages.png") 
+
+# Mortgages conditional on owning a home 
+mortgage_homeowners_invest = ifelse.(housing_invest .== 1, mortgage_invest, missing)
+mortgage_homeowners_taste = ifelse.(housing_taste .== 1, mortgage_taste, missing)
+mortgage_homeowners_heloc = ifelse.(housing_heloc .== 1, mortgage_heloc, missing)
+
+plot(age_grid, mapslices(x -> mean(skipmissing(x)), mortgage_homeowners_invest; dims=1)[1,:], label = "Invest")
+plot!(age_grid, mapslices(x -> mean(skipmissing(x)), mortgage_homeowners_taste; dims=1)[1,:],xlabel = "Age", label = "Taste",ylabel = L" Mean Wealth\n (1997 $) ", title = "Wealth Accumulation over the Lifecycle")
+plot!(age_grid, mapslices(x -> mean(skipmissing(x)), mortgage_homeowners_heloc; dims=1)[1,:],xlabel = "Age", label = "HELOC",ylabel = L" Mean Wealth\n (1997 $) ", title = "Wealth Accumulation over the Lifecycle")
+
+############################################################
+# Insurance Coefficients
+############################################################
+α_ϵ_base,α_ζ_base = true_insurance(sols,transitory_b[:,1:35],persistent_b[:,1:35],consumption_b[:,1:35], para.φ) 
+
+α_ϵ_invest,α_ζ_invest = true_insurance(sols,transitory_invest[:,1:35],persistent_invest[:,1:35],consumption_invest[:,1:35], para.φ) 
+
+α_ϵ_taste,α_ζ_taste = true_insurance(sols,transitory_taste[:,1:35],persistent_taste[:,1:35],consumption_taste[:,1:35], para.φ) 
+
+α_ϵ_heloc,α_ζ_heloc = true_insurance(sols,transitory_heloc[:,1:35],persistent_heloc[:,1:35],consumption_heloc[:,1:35], para.φ) 
+
 
 ######################################
 # Compute insurance coefficients and plot them over time
 ######################################
-α_ϵ = zeros(7,1)
-α_ζ = zeros(7,1)
+α_ϵ_time = zeros(7,4)
+α_ζ_time= zeros(7,4)
 for j = 1:5:para.N
     index = Int64((j+4)/5)
-    α_ϵ[index],α_ζ[index] = true_insurance(sols,transitory[:,j:j+4],persistent[:,j:j+4],consumption[:,j:j+4], para.φ) 
+    α_ϵ_time[index,1],α_ζ_time[index,1] = true_insurance(sols,transitory_b[:,j:j+4],persistent_b[:,j:j+4],consumption_b[:,j:j+4], para.φ) 
+    α_ϵ_time[index,2],α_ζ_time[index,2] = true_insurance(sols,transitory_invest[:,j:j+4],persistent_invest[:,j:j+4],consumption_invest[:,j:j+4], para.φ) 
+    α_ϵ_time[index,3],α_ζ_time[index,3] = true_insurance(sols,transitory_taste[:,j:j+4],persistent_taste[:,j:j+4],consumption_taste[:,j:j+4], para.φ) 
+    α_ϵ_time[index,4],α_ζ_time[index,4] = true_insurance(sols,transitory_heloc[:,j:j+4],persistent_heloc[:,j:j+4],consumption_heloc[:,j:j+4], para.φ) 
+
 end
 
-age_grid = collect(range(start_age, length = 7, stop = end_age))
-plot(age_grid,α_ϵ,xlabel = "Age", ylabel = "Value", label = "Insurance against Transitory Shocks")
-plot!(age_grid,α_ζ, label =  "Insurance against Persistent Shocks")
+age_grid_smoothed = collect(range(start_age, length = 7, stop = end_age))
+plot(age_grid_smoothed,α_ϵ_time[:,1],xlabel = "Age",  label = "No Housing", ylabel = L"\phi^{\epsilon}", title = "Transitory Insurance by Age")
+plot!(age_grid_smoothed,α_ϵ_time[:,3],xlabel = "Age",  label = "Taste")
+plot!(age_grid_smoothed,α_ϵ_time[:,4], label =  "HELOC Counterfactual")
+savefig("ZO_Project_Image_transitory_insurance.png") 
 
-# Need to compare to insurance under the no-housing model. 
-# and for homeowners vs renters. 
-
-α_ϵ,α_ζ = true_insurance(sols,transitory[:,1:35],persistent[:,1:35],consumption[:,1:35], para.φ) 
-############################################################
-# Policy evaluation: HELOC
-############################################################
-Solve_Problem_with_Heloc(para,sols)
-
-wealth, assets, consumption, persistent,transitory, cash_on_hand, mortgage, housing = simulate_model(para, sols, 10000)
-α_ϵ,α_ζ = true_insurance(sols,transitory[:,1:35],persistent[:,1:35],consumption[:,1:35], para.φ) 
-# HELOC doesn't improve insurance all that much: individuals can only access it if 
-# they are least in need. 
+plot(age_grid_smoothed,α_ζ_time[:,1],xlabel = "Age",  label = "No Housing", ylabel = L"\phi^{\eta}", title = "Persistent Insurance by Age")
+plot!(age_grid_smoothed,α_ζ_time[:,3],xlabel = "Age", label = "Taste")
+plot!(age_grid_smoothed,α_ζ_time[:,4], label =  "HELOC Counterfactual")
+savefig("ZO_Project_Image_persistent_insurance.png") 
 ############################################################
 # Output
 ############################################################
-cd(outdir_parameters)
+cd(indir_parameters)
 
 results_df = DataFrame(
     Parameter = ["α_ϵ", "α_ζ",], 
-    BPP = [α_ϵ_hat,α_ζ_hat],
-    True = [α_ϵ,α_ζ],
+    Baseline = [α_ϵ_base,α_ζ_base],
+    Investment = [α_ϵ_invest,α_ζ_invest],
+    Taste = [α_ϵ_taste,α_ζ_taste],
+    HELOC = [α_ϵ_heloc,α_ζ_heloc],
 )
 
 CSV.write("insurance_coefficients.csv", results_df)
